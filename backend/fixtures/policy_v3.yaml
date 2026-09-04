@@ -1,0 +1,18 @@
+policy_id: DEMO-PROC-2026-01
+fictitious: true
+version: 3
+effective_from: 2026-07-01T00:00:00+08:00
+currency: CNY
+developer_laptop_baseline:
+  minimum_ram_gb: 32
+  minimum_warranty_months: 36
+  condition: NEW
+approval_thresholds:
+  - amount: 10000
+    approver: line_manager
+  - amount: 50000
+    approver: cost_center_owner
+  - amount: 100000
+    approver: procurement_manager
+vendor_exception_approver: procurement_specialist
+

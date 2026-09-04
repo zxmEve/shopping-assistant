@@ -1,0 +1,22 @@
+services:
+  backend:
+    build: ./backend
+    environment:
+      PROCURE_ENVIRONMENT: fixture
+      PROCURE_AGENT_MODE: ${PROCURE_AGENT_MODE:-deterministic}
+      PROCURE_OPENAI_MODEL: ${PROCURE_OPENAI_MODEL:-gpt-5-mini}
+      PROCURE_OPENAI_API_KEY: ${PROCURE_OPENAI_API_KEY:-}
+      PROCURE_ACTION_TOKEN_SECRET: ${PROCURE_ACTION_TOKEN_SECRET:-local-compose-secret}
+      PROCURE_RUN_STORE_PATH: /app/.data/runs.json
+    volumes:
+      - run-data:/app/.data
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:80"
+
+volumes:
+  run-data:

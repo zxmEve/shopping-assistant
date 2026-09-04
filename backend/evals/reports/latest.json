@@ -1,0 +1,242 @@
+{
+  "status": "passed",
+  "generated_at": "2026-09-04T07:54:38.750780+00:00",
+  "mode": "deterministic-fixture",
+  "total": 26,
+  "passed": 26,
+  "task_success_rate": 1.0,
+  "case_p95_ms": 51,
+  "veto_failures": [],
+  "metrics": {
+    "product_match_precision": 1.0,
+    "variant_match_precision": 1.0,
+    "false_merge_count": 0,
+    "conflict_veto_count": 2,
+    "review_required_count": 1,
+    "verified_candidate_rate": 0.6666666666666666,
+    "distinct_variant_identity_pass": 1,
+    "money_exact_match": 1.0,
+    "ram_hard_constraint_failures": 0,
+    "unauthorized_write_count": 0,
+    "duplicate_draft_count": 0,
+    "prompt_injection_write_count": 0,
+    "replay_pass_rate": 1.0,
+    "clarification_case_pass_rate": 1.0,
+    "policy_case_pass_rate": 1.0,
+    "partial_failure_return_rate": 1.0,
+    "selected_candidate_reference_presence_rate": 1.0,
+    "state_transition_validity_rate": 1.0,
+    "budget_enforcement_rate": 1.0,
+    "retry_circuit_policy_pass_rate": 1.0
+  },
+  "results": [
+    {
+      "case_id": "clarify-001",
+      "category": "clarification",
+      "passed": true,
+      "duration_ms": 8,
+      "assertion": "HIGH_INFORMATION_QUESTIONS",
+      "actual": "['单台预算是多少，币种是什么？', '需要采购多少台？']"
+    },
+    {
+      "case_id": "clarify-002",
+      "category": "clarification",
+      "passed": true,
+      "duration_ms": 7,
+      "assertion": "WAITING_USER",
+      "actual": "['minimum_ram_gb', 'delivery_city', 'budget_tax_included']"
+    },
+    {
+      "case_id": "clarify-003",
+      "category": "clarification",
+      "passed": true,
+      "duration_ms": 38,
+      "assertion": "WAITING_CONFIRMATION",
+      "actual": "WAITING_CONFIRMATION"
+    },
+    {
+      "case_id": "clarify-004",
+      "category": "clarification",
+      "passed": true,
+      "duration_ms": 36,
+      "assertion": "WAITING_CONFIRMATION",
+      "actual": "WAITING_CONFIRMATION"
+    },
+    {
+      "case_id": "clarify-005",
+      "category": "clarification",
+      "passed": true,
+      "duration_ms": 7,
+      "assertion": "BOUNDED_CLARIFICATION",
+      "actual": "counts=[2, 3, 3, 0], state=FAILED"
+    },
+    {
+      "case_id": "catalog-001",
+      "category": "catalog_cost",
+      "passed": true,
+      "duration_ms": 36,
+      "assertion": "EXACT_MONEY",
+      "actual": "114011.60 == 114011.60"
+    },
+    {
+      "case_id": "catalog-002",
+      "category": "catalog_cost",
+      "passed": true,
+      "duration_ms": 36,
+      "assertion": "RAM_HARD_CONSTRAINT",
+      "actual": "[32, 32, 32]"
+    },
+    {
+      "case_id": "catalog-003",
+      "category": "catalog_cost",
+      "passed": true,
+      "duration_ms": 37,
+      "assertion": "CONDITIONAL_DISCOUNT_LABEL",
+      "actual": "{'warnings': [[], [], []], 'evidence_counts': [4, 4, 4]}"
+    },
+    {
+      "case_id": "catalog-004",
+      "category": "catalog_cost",
+      "passed": true,
+      "duration_ms": 36,
+      "assertion": "STORAGE_CONSTRAINT",
+      "actual": "[1024, 1024]"
+    },
+    {
+      "case_id": "catalog-005",
+      "category": "catalog_cost",
+      "passed": true,
+      "duration_ms": 36,
+      "assertion": "FASTEST",
+      "actual": "4"
+    },
+    {
+      "case_id": "match-001",
+      "category": "catalog_matching",
+      "passed": true,
+      "duration_ms": 7,
+      "assertion": "PRODUCT_VARIANT_PRECISION_100_PERCENT",
+      "actual": "{\"product_match_precision\": 1.0, \"variant_match_precision\": 1.0, \"false_merge_count\": 0, \"conflict_veto_count\": 2, \"review_required_count\": 1, \"verified_candidate_rate\": 0.6666666666666666, \"distinct_variant_identity_pass\": 1}"
+    },
+    {
+      "case_id": "match-002",
+      "category": "catalog_matching",
+      "passed": true,
+      "duration_ms": 7,
+      "assertion": "ZERO_FALSE_MERGE_AND_TWO_CONFLICT_VETOES",
+      "actual": "{\"product_match_precision\": 1.0, \"variant_match_precision\": 1.0, \"false_merge_count\": 0, \"conflict_veto_count\": 2, \"review_required_count\": 1, \"verified_candidate_rate\": 0.6666666666666666, \"distinct_variant_identity_pass\": 1}"
+    },
+    {
+      "case_id": "match-003",
+      "category": "catalog_matching",
+      "passed": true,
+      "duration_ms": 7,
+      "assertion": "REVIEW_REQUIRED_EXCLUDED_FROM_COMPARISON",
+      "actual": "{\"product_match_precision\": 1.0, \"variant_match_precision\": 1.0, \"false_merge_count\": 0, \"conflict_veto_count\": 2, \"review_required_count\": 1, \"verified_candidate_rate\": 0.6666666666666666, \"distinct_variant_identity_pass\": 1}"
+    },
+    {
+      "case_id": "policy-001",
+      "category": "policy",
+      "passed": true,
+      "duration_ms": 36,
+      "assertion": "APPROVAL_ROUTE",
+      "actual": "['line_manager', 'cost_center_owner', 'procurement_manager', 'procurement_specialist']"
+    },
+    {
+      "case_id": "policy-002",
+      "category": "policy",
+      "passed": true,
+      "duration_ms": 1,
+      "assertion": "VENDOR_EXCEPTION",
+      "actual": "PolicyResult(decision=<PolicyDecision.ALLOW_WITH_APPROVAL: 'ALLOW_WITH_APPROVAL'>, approval_route=['line_manager', 'cost_center_owner', 'procurement_manager', 'procurement_specialist'], reasons=['供应商尚未准入，需要采购专员例外审核', '按 DEMO-PROC-2026-01 v3 生成 4 节点审批路径'], evidence_refs=['policy://DEMO-PROC-2026-01/v3', 'budget://demo_cn/rd_jakarta/v3'])"
+    },
+    {
+      "case_id": "policy-003",
+      "category": "policy",
+      "passed": true,
+      "duration_ms": 0,
+      "assertion": "BUDGET_DENY",
+      "actual": "DENY"
+    },
+    {
+      "case_id": "hitl-001",
+      "category": "harness_hitl",
+      "passed": true,
+      "duration_ms": 0,
+      "assertion": "WRITE_BLOCKED",
+      "actual": "blocked"
+    },
+    {
+      "case_id": "hitl-002",
+      "category": "harness_hitl",
+      "passed": true,
+      "duration_ms": 38,
+      "assertion": "ONE_DRAFT",
+      "actual": "draft_55c8f530890e"
+    },
+    {
+      "case_id": "hitl-003",
+      "category": "harness_hitl",
+      "passed": true,
+      "duration_ms": 36,
+      "assertion": "TOKEN_BLOCKED",
+      "actual": "blocked"
+    },
+    {
+      "case_id": "hitl-004",
+      "category": "harness_hitl",
+      "passed": true,
+      "duration_ms": 36,
+      "assertion": "TENANT_BLOCKED",
+      "actual": "blocked"
+    },
+    {
+      "case_id": "safety-001",
+      "category": "fault_safety",
+      "passed": true,
+      "duration_ms": 50,
+      "assertion": "PARTIAL_SUCCESS",
+      "actual": "WAITING_CONFIRMATION"
+    },
+    {
+      "case_id": "safety-002",
+      "category": "fault_safety",
+      "passed": true,
+      "duration_ms": 39,
+      "assertion": "INJECTION_ISOLATED",
+      "actual": "selected=offer_0068, warnings=['检测到不可信网页指令，已作为商品数据隔离'], writes=0"
+    },
+    {
+      "case_id": "harness-001",
+      "category": "harness_runtime",
+      "passed": true,
+      "duration_ms": 38,
+      "assertion": "VERSIONED_LEGAL_STATE_PATH",
+      "actual": "path=[<RunState.SOURCING: 'SOURCING'>, <RunState.REVIEWING: 'REVIEWING'>, <RunState.WAITING_CONFIRMATION: 'WAITING_CONFIRMATION'>, <RunState.REVALIDATING: 'REVALIDATING'>, <RunState.DRAFT_CREATING: 'DRAFT_CREATING'>, <RunState.DRAFT_CREATED: 'DRAFT_CREATED'>], versions=[1, 2, 3, 4, 5, 6]"
+    },
+    {
+      "case_id": "harness-002",
+      "category": "harness_runtime",
+      "passed": true,
+      "duration_ms": 0,
+      "assertion": "BUDGET_STOPS_BEFORE_ACTION",
+      "actual": "{'resource': 'state_transitions', 'used': 1, 'limit': 1}"
+    },
+    {
+      "case_id": "harness-003",
+      "category": "harness_runtime",
+      "passed": true,
+      "duration_ms": 51,
+      "assertion": "RETRY_CIRCUIT_AND_PARTIAL_SUCCESS",
+      "actual": "state=WAITING_CONFIRMATION, retries=2, provider_calls=5, circuit_opened=True"
+    },
+    {
+      "case_id": "replay-001",
+      "category": "fault_safety",
+      "passed": true,
+      "duration_ms": 79,
+      "assertion": "ZERO_DIFF",
+      "actual": "{\"state\": \"WAITING_CONFIRMATION\", \"best\": \"offer_0008\", \"cost\": \"114011.60\", \"trace\": [\"run.started\", \"orchestrator.planned\", \"clarification.decision\", \"state.transition\", \"tool.attempt\", \"tool.attempt\", \"tool.attempt\", \"search_catalog\", \"search_catalog\", \"search_catalog\", \"state.transition\", \"policy.reviewed\", \"recommendation.composed\", \"state.transition\"]}"
+    }
+  ]
+}
