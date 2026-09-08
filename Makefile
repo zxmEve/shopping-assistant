@@ -1,4 +1,4 @@
-.PHONY: setup backend frontend dev test eval build
+.PHONY: setup backend frontend dev test eval live-eval live-eval-s3 live-eval-compare migrate build
 
 setup:
 	cd backend && uv sync --extra dev
@@ -24,6 +24,17 @@ test:
 eval:
 	cd backend && uv run procure-eval
 
+live-eval:
+	cd backend && uv run procure-live-eval --runs 3
+
+live-eval-s3:
+	cd backend && uv run procure-live-eval --suite s3-smoke --topology two_agent --runs 3
+
+live-eval-compare:
+	@echo "Legacy topology comparison was removed; run 'make live-eval-s3' for the two-agent gate."
+
+migrate:
+	cd backend && uv run alembic upgrade head
+
 build:
 	cd frontend && npm run build
-

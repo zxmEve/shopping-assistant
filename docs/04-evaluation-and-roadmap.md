@@ -299,29 +299,44 @@ flowchart LR
 交付：
 
 - Python/FastAPI/OpenAI Agents SDK 工程骨架；
-- Procurement Orchestrator + Clarification/Sourcing/Policy specialists-as-tools；
+- Application Runtime + Requirement/Sourcing 两个只读 Agent；
 - 进程内多来源商品 fixture 和企业 fixture gateway；
 - 主动追问、同款归一、成本/预算/制度校验、有证据推荐；
 - HITL、action token、幂等采购草稿；
-- 最小 Harness、trace、确定性结果投影和 26 个 golden 场景；完整 cassette 尚待实现；
+- 最小 Harness、trace、确定性结果投影和 39 个 golden 场景；完整 cassette 尚待实现；
 - 对话、比较、确认和 trace 四个最小 UI 区域。
 
 退出条件：满足[第一阶段范围与完成指标](06-phase-one-scope.md)中的全部 veto 指标和质量门槛。此阶段不接 Temporal、Kafka、长期记忆、浏览器和 live provider。
 
-### Phase 2：生产化与扩展评测
+### Phase 2：真正的 Agent 工具闭环
 
 交付：
 
-- Temporal durable workflow、checkpoint/resume、重试和定时任务；
-- Redis、Outbox + Kafka/Redpanda、Watcher 和通知防重；
-- Profile/Team/Episodic/Semantic memory 与 consent/edit/delete；
-- pgvector + FTS + RRF；
-- 60 个精标场景、OTel/Langfuse 和 CI gate；
-- 进程恢复、并发预算、数据漂移和记忆安全评测。
+- Requirement/Sourcing 两个 Agent 的强类型只读工具；
+- Application Runtime 使用完整多轮消息和结构化需求，只执行当前所需角色；
+- Agent 工具统一复用 Harness 权限、风险和预算规则；
+- 工具选择、参数、遗漏、重复调用、停止条件和越权轨迹评测；
+- deterministic fixture 与真实模型报告严格分离。
 
-退出条件：进程和外部依赖故障可恢复，长期记忆边界通过安全门禁，质量/成本/延迟有稳定基线。
+退出条件：Agent 不再只是首次规划器，能够在 Harness 边界内完成追问、寻源和制度核验，并形成真实模型质量、成本和延迟基线。
 
-### Phase 3：真实集成与受控自进化
+当前结果：双 Agent Runtime、阶段预算、commit 预留、安全恢复及以 `DRAFT_CREATED` 为成功条件的 Live runner 已完成。历史 DeepSeek 报告来自旧拓扑，更新后的两个 Agent 真实模型闭环尚未重跑，按 `11-next-step-plan-and-technical-design.md` 继续实施。
+
+### Phase 3：数据库基础
+
+交付 PostgreSQL、SQLAlchemy/Alembic、tenant-scoped repositories、状态条件更新、报价快照和草稿唯一约束。退出条件是 JSON Repository 可被替换，跨租户和并发写入由数据库测试证明。
+
+当前结果：SQLAlchemy Repository、Alembic migration、配置切换和 Compose 已完成，并在真实 PostgreSQL 17 验证完整闭环、跨租户拒绝、乐观锁和唯一约束；生产 RLS 与连接池监控不属于本次最小切片。
+
+### Phase 4：长期记忆与 RAG
+
+交付 Profile/Team/Episodic/Semantic memory、consent/edit/delete、memory audit，以及 pgvector + FTS + RRF。退出条件是记忆和制度检索不越租户、可删除、可追溯且过期制度不能参与最终判断。
+
+### Phase 5：工程可靠性增强
+
+交付 checkpoint/resume/cancel、完整 cassette replay、跨进程熔断、Outbox，必要时再引入 Temporal。退出条件是进程和外部依赖故障可恢复，离线轨迹能够稳定复现。
+
+### Phase 6：真实集成与受控自进化
 
 交付：
 
@@ -339,8 +354,8 @@ flowchart LR
 | Tool Calling / Structured Output | 所有企业系统通过 schema tool，Agent 输出结构化 decision |
 | ReAct / Agent Loop | 每个 workflow 阶段内有限工具循环 |
 | Workflow / State Machine | 采购主流程的显式阶段和合法迁移 |
-| Multi-Agent | Manager + specialists-as-tools，平台 adapter 不伪装 Agent |
-| Handoff vs Agent-as-tool | 核心采用 agent-as-tool，并在 ADR 解释取舍 |
+| Multi-Agent | Requirement/Sourcing 两个独立模型角色，确定性 Runtime 调度 |
+| Handoff vs Agent-as-tool | 当前不使用动态 handoff；用类型化任务信封隔离上下文 |
 | RAG / Hybrid Search | 制度、商品别名和历史案例 FTS + pgvector + RRF |
 | Memory | Working/Profile/Team/Episodic/Semantic 分层与 consent |
 | MCP | P2 授权 provider 扩展和动态工具加载 |

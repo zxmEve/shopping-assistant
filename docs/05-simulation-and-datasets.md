@@ -241,7 +241,7 @@ Outcome grader 不能单独决定通过：即使最终数据库状态正确，�
 2. 导入 ESCI/WANDS 的受控小切片，只保留来源与许可证清单。
 3. 用 fixture compiler 生成 40/120/约 450 的 Product/Variant/Offer 快照。
 4. 实现一个多 provider fixture adapter 和一个 enterprise fixture gateway。
-5. 当前完成 26 个手写 golden 场景，验证 grader 后再扩到 60 个。
+5. 当前完成 39 个手写 golden 场景，其中 3 个覆盖数据库回写、租户边界和并发冲突，3 个覆盖长期记忆授权与生命周期；验证 grader 后再扩到 60 个。
 6. 接入 user simulator、fault controller、trace recorder 和 replay。
 7. 接入 ShoppingComp/AgentDojo 风格的安全与解释测试。
 8. 稳定后扩到 180 个，并将 ShoppingBench/WebShop 作为独立重型 profile。

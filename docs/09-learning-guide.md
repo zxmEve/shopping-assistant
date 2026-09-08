@@ -218,7 +218,7 @@ Provider 调用的顺序是：
 
 面试表达：
 
-> 我把状态和 Trace 分开：状态由集中迁移表保护，Trace 只记录发生过什么。每个 Run 固化当时的额度和累计用量，所有额度都在动作前扣减。Provider 的超时、重试、熔断按工具和来源隔离，一个商城失败不会拖掉其他来源。状态事件和预算用量随 Run 保存，因此可以解释任务为什么走到当前阶段、为什么停止。当前真实模型 usage 和跨进程熔断仍未完成，我没有把数据模型等同于生产能力。
+> 我把状态和 Trace 分开：状态由集中迁移表保护，Trace 只记录发生过什么。每个 Run 固化当时的额度和累计用量，所有额度都在动作前扣减。Provider 的超时、重试、熔断按工具和来源隔离，一个商城失败不会拖掉其他来源。状态事件和预算用量随 Run 保存，因此可以解释任务为什么走到当前阶段、为什么停止。真实模型 usage 已完成小样本验证；跨进程熔断仍未完成，我没有把局部基线等同于生产能力。
 
 推荐阅读顺序：
 
@@ -227,3 +227,58 @@ Provider 调用的顺序是：
 3. `harness/runtime.py`：看迁移、前置扣减和工具故障策略；
 4. `services/engine.py`：看业务流程如何只通过 Harness 推进；
 5. `tests/test_harness_state_machine.py`：从失败测试确认安全边界。
+
+## 14. 本轮主题：为什么 Agent 不能直接填写价格和预算
+
+Function tool 不等于把任意 Python 函数交给模型。工具参数本身也是不可信输入。如果成本工具接收 `unit_price=5000`，模型可能因为理解错误或 Prompt Injection 传入一个并非 Provider 返回的价格；即使计算公式完全正确，结果仍然没有事实依据。
+
+当前工具链改成：
+
+```text
+search_catalog(provider)
+  -> 服务器读取 Run 中的数量和规格
+  -> 返回并缓存规范化 Offer
+
+calculate_landed_cost(provider, offer_id)
+  -> 只接受刚才查到的 Offer ID
+  -> 服务器读取价格、税率、运费和数量
+
+evaluate_policy(provider, offer_id)
+  -> 服务器读取供应商、预算和制度
+  -> 返回确定性结论与证据
+```
+
+模型只决定“从哪些真实目录候选中提出哪一个”，不能提交金额事实。虚构的 Offer ID 会被服务端候选校验拒绝，不会进入最终推荐。
+
+当前 OpenAI 与 DeepSeek 共用两个 Agent 边界：Requirement Agent 只能查看需求，Sourcing Agent 只能查目录。成本、预算和 Policy 已移回确定性服务。创建草稿、审批、下单和支付均不在 Agent 工具面中。所有工具继续经过 Harness 的角色、风险、预算和 Trace 控制。
+
+多轮方面，每次 Planner 收到整个 Run 的消息历史，而不是用户最新一句话。结构化 Requirement 仍是业务事实，消息历史只帮助 Agent 理解对话，不具备覆盖事实的权限。
+
+面试表达：
+
+> 我没有把价格、预算和供应商状态设计成模型可填写的工具参数。Sourcing Agent 通过受控目录工具取得 canonical Offer，只返回 provider、offerId 和目录证据；Engine 再计算成本、预算和制度并验证候选。这样 Agent 能参与语义权衡，又不能成为事实、规则或权限的来源。
+
+推荐阅读：`docs/adr/0007-grounded-agent-function-tools.md`、`agents/tools.py`、`agents/runtime.py`、`tests/test_agent_tools.py`。
+
+轨迹评分不只看最终有没有推荐成功，还检查 Agent 是怎样得到结果的：候选前是否调用目录工具、是否用同一参数重复查询、候选是否来自已查来源、推荐后是否明确等待人工确认。制度结论属于服务轨迹，不再计入 Agent 工具轨迹。真实模型和确定性 Fixture 使用不同报告目录；没有 API Key 时不生成 live 报告，避免把离线分数误写成模型能力。
+
+## 15. 为什么 OpenAI 和 DeepSeek 都使用同一个双 Agent 结构
+
+项目使用的是 OpenAI Agents SDK，因为它已经提供 Agent、function tool、结构化输出、handoff/agent-as-tool 和 usage 采集，而且业务代码可以继续使用 Pydantic 类型。选择它不是把关键规则交给框架，而是减少模型调用编排的样板代码；权限、预算、事实和写操作仍由自己的 Harness 与 Engine 控制。
+
+早期 OpenAI 使用“总控调用三个专家”，DeepSeek 使用“一个总控调用五个函数”，这导致同一业务有两套执行语义。现在 Provider 差异只留在传输层：OpenAI 使用 Responses，DeepSeek 使用兼容 Chat Completions；上层都只创建 Requirement Agent 和 Sourcing Agent，并由确定性 Runtime 路由。这样可以针对两个角色使用相同的权限、预算、Trace 和评测。
+
+DeepSeek 还会在要求 JSON 时附加解释文字。恢复策略不是接受任意松散格式，而是只查看最后一条模型输出，提取第一个完整 JSON 对象，再用原来的 `AgentPlan` Schema 从头校验；提取不到或字段无效仍然失败，并在 Trace 标记发生过修复。3 次 live 都发生修复，因此后续要持续记录修复率，不能只看 3/3 成功率。
+
+## 16. PostgreSQL 为什么这样存
+
+数据库现在有两种视角：
+
+- `procurement_runs` 保存完整 Run JSONB，目标是简单、完整地恢复一条任务；
+- `run_messages` 和 `run_trace_events` 保存可查询投影，目标是按租户、顺序、角色和工具读取，为长期记忆、RAG 和审计准备输入。
+
+一次保存会在同一个事务中更新三者，避免主任务成功而消息或 Trace 丢失。每次读取都带 tenant/user 条件；每次更新都比较 `lock_version`，别人已经修改就拒绝覆盖；草稿 ID 和业务幂等键由唯一约束兜底。
+
+这里没有立即把 Candidate、Offer、Policy 等所有嵌套字段拆成几十张表，因为这些结构还会随着记忆和 RAG 演进。先保留完整快照，只把已经确认需要查询的部分拆表，能在可靠性和演进成本之间保持平衡。
+
+推荐阅读：`docs/adr/0008-postgres-run-store.md`、`persistence/models.py`、`persistence/repository.py`、`migrations/versions/20260904_0001_postgres_run_store.py`、`tests/test_sqlalchemy_repository.py`。

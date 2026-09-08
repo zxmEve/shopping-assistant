@@ -321,7 +321,7 @@ function App() {
         <div className="agent-map">
           <div className="agent-map__manager"><PackageSearch size={17} /><span>Orchestrator</span></div>
           <div className="agent-map__line" />
-          <div className="agent-map__specialists"><span>Clarify</span><span>Source</span><span>Policy</span></div>
+          <div className="agent-map__specialists"><span>Clarify</span><span>Source</span><span>Policy</span><span>Verify</span></div>
         </div>
         <div className="trace-list">
           {run?.trace.length ? run.trace.map((event, index) => (

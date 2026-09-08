@@ -124,7 +124,7 @@ LLM 可以根据需求选择“需要查询目录还是预算”，但它不能�
 
 - Fixture Session 不是生产登录系统，没有真实登录、过期、刷新、撤销和密钥轮换；
 - 当前租户过滤还没有统一下沉到数据库 Repository；
-- OpenAI Agent 层尚未把所有领域能力改成真正的 function tools，后续接入时必须复用同一 Tool Registry。
+- M2 已有 5 个只读 Agents SDK function tools 复用同一 Tool Registry；结构化候选由服务端验证后可参与推荐，业务写入仍只走 HITL 流程。
 
 ## 术语对照
 

@@ -8,10 +8,12 @@ import json
 import threading
 import time
 from collections.abc import Awaitable, Callable
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from procure_pilot.domain.models import (
     BudgetResource,
@@ -20,15 +22,43 @@ from procure_pilot.domain.models import (
     RiskLevel,
     RunState,
     StateTransitionEvent,
+    ToolBudgetPool,
     TraceEvent,
     utc_now,
 )
 
 T = TypeVar("T")
+ACTIVE_AGENT_EXECUTION_ID: ContextVar[str | None] = ContextVar(
+    "active_agent_execution_id",
+    default=None,
+)
 
 
 class RunNotFoundError(KeyError):
     pass
+
+
+class PersistenceConflictError(RuntimeError):
+    pass
+
+
+class RunRepositoryPort(Protocol):
+    def save(self, run: ProcurementRun) -> ProcurementRun: ...
+
+    def get(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        user_id: str | None = None,
+    ) -> ProcurementRun: ...
+
+    def list(
+        self,
+        *,
+        tenant_id: str | None = None,
+        user_id: str | None = None,
+    ) -> list[ProcurementRun]: ...
 
 
 class HarnessBudgetExceeded(RuntimeError):
@@ -78,6 +108,12 @@ class CircuitState:
 
 DEFAULT_TOOL_POLICIES = (
     ToolPolicy(
+        name="inspect_requirement",
+        risk=RiskLevel.READ,
+        allowed_roles=frozenset({"EMPLOYEE", "PROCUREMENT_SPECIALIST"}),
+        description="Read the current server-owned procurement requirement.",
+    ),
+    ToolPolicy(
         name="search_catalog",
         risk=RiskLevel.READ,
         allowed_roles=frozenset({"EMPLOYEE", "PROCUREMENT_SPECIALIST"}),
@@ -88,6 +124,12 @@ DEFAULT_TOOL_POLICIES = (
         risk=RiskLevel.READ,
         allowed_roles=frozenset({"EMPLOYEE", "PROCUREMENT_SPECIALIST"}),
         description="Read the requester's cost-center budget snapshot.",
+    ),
+    ToolPolicy(
+        name="calculate_landed_cost",
+        risk=RiskLevel.READ,
+        allowed_roles=frozenset({"EMPLOYEE", "PROCUREMENT_SPECIALIST"}),
+        description="Calculate exact landed cost from a searched canonical offer.",
     ),
     ToolPolicy(
         name="evaluate_policy",
@@ -144,28 +186,65 @@ class RunRepository:
         self.path = path
         self._lock = threading.RLock()
         self._runs: dict[str, ProcurementRun] = {}
+        self._versions: dict[str, int] = {}
         if path and path.exists():
             payload = json.loads(path.read_text(encoding="utf-8"))
             self._runs = {
                 key: ProcurementRun.model_validate(value) for key, value in payload.items()
             }
+            self._versions = dict.fromkeys(self._runs, 0)
 
     def save(self, run: ProcurementRun) -> ProcurementRun:
         with self._lock:
+            current_version = self._versions.get(run.run_id)
+            if current_version is not None and run._persistence_version != current_version:
+                raise PersistenceConflictError(f"Run was changed by another writer: {run.run_id}")
             run.updated_at = utc_now()
-            self._runs[run.run_id] = run.model_copy(deep=True)
+            next_version = 0 if current_version is None else current_version + 1
+            stored = run.model_copy(deep=True)
+            stored._persistence_version = next_version
+            self._runs[run.run_id] = stored
+            self._versions[run.run_id] = next_version
+            run._persistence_version = next_version
             self._flush()
             return run
 
-    def get(self, run_id: str) -> ProcurementRun:
+    def get(
+        self,
+        run_id: str,
+        *,
+        tenant_id: str | None = None,
+        user_id: str | None = None,
+    ) -> ProcurementRun:
         with self._lock:
             if run_id not in self._runs:
                 raise RunNotFoundError(run_id)
-            return self._runs[run_id].model_copy(deep=True)
+            stored = self._runs[run_id]
+            if (tenant_id is not None and stored.tenant_id != tenant_id) or (
+                user_id is not None and stored.user_id != user_id
+            ):
+                raise PermissionError("Run is not accessible in the current tenant context")
+            result = stored.model_copy(deep=True)
+            result._persistence_version = self._versions[run_id]
+            return result
 
-    def list(self) -> list[ProcurementRun]:
+    def list(
+        self,
+        *,
+        tenant_id: str | None = None,
+        user_id: str | None = None,
+    ) -> list[ProcurementRun]:
         with self._lock:
-            return [item.model_copy(deep=True) for item in self._runs.values()]
+            results = []
+            for run_id, item in self._runs.items():
+                if tenant_id is not None and item.tenant_id != tenant_id:
+                    continue
+                if user_id is not None and item.user_id != user_id:
+                    continue
+                copied = item.model_copy(deep=True)
+                copied._persistence_version = self._versions[run_id]
+                results.append(copied)
+            return results
 
     def _flush(self) -> None:
         if not self.path:
@@ -192,7 +271,13 @@ class AgentHarness:
         secret: str,
         max_steps: int = 20,
         max_agent_turns: int = 12,
-        max_tool_calls: int = 12,
+        max_orchestrator_requests: int = 2,
+        max_specialist_requests: int = 8,
+        max_stage_model_requests: int = 10,
+        max_tool_calls: int = 21,
+        max_agent_read_tool_calls: int = 12,
+        max_workflow_read_tool_calls: int = 6,
+        max_commit_tool_calls: int = 3,
         max_provider_calls: int = 12,
         max_retries: int = 4,
         max_input_tokens: int = 30_000,
@@ -209,7 +294,13 @@ class AgentHarness:
         self.execution_budget = ExecutionBudget(
             max_state_transitions=max_steps,
             max_agent_turns=max_agent_turns,
+            max_orchestrator_requests=max_orchestrator_requests,
+            max_specialist_requests=max_specialist_requests,
+            max_stage_model_requests=max_stage_model_requests,
             max_tool_calls=max_tool_calls,
+            max_agent_read_tool_calls=max_agent_read_tool_calls,
+            max_workflow_read_tool_calls=max_workflow_read_tool_calls,
+            max_commit_tool_calls=max_commit_tool_calls,
             max_provider_calls=max_provider_calls,
             max_retries=max_retries,
             max_input_tokens=max_input_tokens,
@@ -301,6 +392,36 @@ class AgentHarness:
         if to_state not in allowed:
             raise ValueError(f"Illegal state transition: {run.state} -> {to_state}")
         self.consume(run, BudgetResource.STATE_TRANSITIONS)
+        return self._apply_transition(run, to_state, reason=reason, actor=actor)
+
+    def recovery_transition(
+        self,
+        run: ProcurementRun,
+        to_state: RunState,
+        *,
+        reason: str,
+        actor: str = "Procurement Orchestrator",
+    ) -> StateTransitionEvent:
+        """Move back to a side-effect-free state even when online wall time is exhausted."""
+        allowed = ALLOWED_STATE_TRANSITIONS.get(run.state, frozenset())
+        if to_state not in allowed:
+            raise ValueError(f"Illegal state transition: {run.state} -> {to_state}")
+        used = run.execution_usage.state_transitions
+        limit = run.execution_budget.max_state_transitions
+        if used + 1 > limit:
+            self._record_budget_stop(run, BudgetResource.STATE_TRANSITIONS, used, limit)
+            raise HarnessBudgetExceeded(BudgetResource.STATE_TRANSITIONS, used, limit)
+        run.execution_usage.state_transitions += 1
+        return self._apply_transition(run, to_state, reason=reason, actor=actor)
+
+    def _apply_transition(
+        self,
+        run: ProcurementRun,
+        to_state: RunState,
+        *,
+        reason: str,
+        actor: str,
+    ) -> StateTransitionEvent:
         previous = run.state
         run.state_version += 1
         run.state = to_state
@@ -335,12 +456,14 @@ class AgentHarness:
         operation: Callable[[], Awaitable[T]],
         confirmed: bool = False,
         provider: str | None = None,
+        budget_pool: ToolBudgetPool = ToolBudgetPool.WORKFLOW_READ,
     ) -> T:
         policy = self.begin_tool_call(
             run,
             tool_name=tool_name,
             roles=roles,
             confirmed=confirmed,
+            budget_pool=budget_pool,
         )
         circuit_key = (tool_name, provider)
         circuit = self._circuits.setdefault(circuit_key, CircuitState())
@@ -464,6 +587,7 @@ class AgentHarness:
         tool_name: str,
         roles: tuple[str, ...],
         confirmed: bool,
+        budget_pool: ToolBudgetPool = ToolBudgetPool.WORKFLOW_READ,
     ) -> ToolPolicy:
         """Authorize and reserve one logical tool call before its side effect starts."""
         policy = self.assert_tool_allowed(
@@ -471,8 +595,81 @@ class AgentHarness:
             roles=roles,
             confirmed=confirmed,
         )
-        self.consume(run, BudgetResource.TOOL_CALLS)
+        if budget_pool == ToolBudgetPool.COMMIT:
+            if run.execution_usage.reserved_commit_tool_calls < 1:
+                limit = run.execution_budget.max_commit_tool_calls
+                self._record_budget_stop(
+                    run,
+                    BudgetResource.COMMIT_TOOL_CALLS,
+                    limit,
+                    limit,
+                )
+                raise HarnessBudgetExceeded(
+                    BudgetResource.COMMIT_TOOL_CALLS,
+                    limit,
+                    limit,
+                )
+            run.execution_usage.reserved_commit_tool_calls -= 1
+            run.execution_usage.commit_tool_calls += 1
+            run.execution_usage.tool_calls += 1
+            return policy
+
+        stage_resource = (
+            BudgetResource.AGENT_READ_TOOL_CALLS
+            if budget_pool == ToolBudgetPool.AGENT_READ
+            else BudgetResource.WORKFLOW_READ_TOOL_CALLS
+        )
+        self.assert_budget_available(run, BudgetResource.TOOL_CALLS)
+        self.assert_budget_available(run, stage_resource)
+        run.execution_usage.tool_calls += 1
+        usage_field = stage_resource.value
+        setattr(
+            run.execution_usage,
+            usage_field,
+            int(getattr(run.execution_usage, usage_field)) + 1,
+        )
         return policy
+
+    def reserve_commit_tool_calls(self, run: ProcurementRun, amount: int) -> None:
+        """Reserve a confirmation attempt without competing with Agent exploration."""
+        if amount < 0:
+            raise ValueError("Commit reservation cannot be negative")
+        self.assert_budget_available(run, BudgetResource.TOOL_CALLS, amount)
+        reserved = run.execution_usage.reserved_commit_tool_calls
+        limit = run.execution_budget.max_commit_tool_calls
+        if reserved + amount > limit:
+            self._record_budget_stop(
+                run,
+                BudgetResource.COMMIT_TOOL_CALLS,
+                reserved,
+                limit,
+            )
+            raise HarnessBudgetExceeded(
+                BudgetResource.COMMIT_TOOL_CALLS,
+                reserved,
+                limit,
+            )
+        run.execution_usage.reserved_commit_tool_calls += amount
+        self.trace(
+            run,
+            actor="Agent Harness",
+            kind="HARNESS",
+            name="budget.commit_reserved",
+            detail={"amount": amount, "limit": limit},
+        )
+
+    def release_commit_tool_calls(self, run: ProcurementRun) -> None:
+        released = run.execution_usage.reserved_commit_tool_calls
+        if released == 0:
+            return
+        run.execution_usage.reserved_commit_tool_calls = 0
+        self.trace(
+            run,
+            actor="Agent Harness",
+            kind="HARNESS",
+            name="budget.commit_released",
+            detail={"amount": released},
+        )
 
     def trace(
         self,
@@ -485,16 +682,28 @@ class AgentHarness:
         status: str = "OK",
         duration_ms: int | None = None,
     ) -> None:
+        resolved_detail = dict(detail or {})
+        execution_id = ACTIVE_AGENT_EXECUTION_ID.get()
+        if execution_id is not None:
+            resolved_detail.setdefault("agent_execution_id", execution_id)
         run.trace.append(
             TraceEvent(
                 actor=actor,
                 kind=kind,
                 name=name,
-                detail=detail or {},
+                detail=resolved_detail,
                 status=status,
                 duration_ms=duration_ms,
             )
         )
+
+    @contextmanager
+    def agent_execution(self, execution_id: str):
+        token = ACTIVE_AGENT_EXECUTION_ID.set(execution_id)
+        try:
+            yield
+        finally:
+            ACTIVE_AGENT_EXECUTION_ID.reset(token)
 
     def assert_tool_allowed(
         self,
@@ -676,7 +885,9 @@ ALLOWED_STATE_TRANSITIONS: dict[RunState, frozenset[RunState]] = {
     RunState.REVALIDATING: frozenset(
         {RunState.WAITING_CONFIRMATION, RunState.DRAFT_CREATING, RunState.FAILED}
     ),
-    RunState.DRAFT_CREATING: frozenset({RunState.DRAFT_CREATED, RunState.FAILED}),
+    RunState.DRAFT_CREATING: frozenset(
+        {RunState.WAITING_CONFIRMATION, RunState.DRAFT_CREATED, RunState.FAILED}
+    ),
     RunState.DRAFT_CREATED: frozenset(),
     RunState.FAILED: frozenset(),
 }

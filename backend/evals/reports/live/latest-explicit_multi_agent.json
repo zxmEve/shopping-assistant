@@ -1,0 +1,702 @@
+{
+  "status": "passed",
+  "generated_at": "2026-09-07T10:24:26.919381+00:00",
+  "mode": "live-model-with-fixture-tools",
+  "topology": "explicit_multi_agent",
+  "provider": "deepseek",
+  "model": "deepseek-v4-flash",
+  "runs": 1,
+  "passed": 1,
+  "task_success_rate": 1.0,
+  "latency_mean_ms": 9853,
+  "latency_p95_ms": 9853,
+  "input_tokens_mean": 15998,
+  "output_tokens_mean": 1606,
+  "cost_observed": false,
+  "cost_estimate": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "price_version": "deepseek-v4-flash-2026-08-16-off-peak",
+    "input_usd_per_million": "0.22",
+    "output_usd_per_million": "0.66",
+    "input_tokens": 15998,
+    "output_tokens": 1606,
+    "estimated_usd": "0.004580",
+    "basis": "conservative cache-miss token estimate; excludes provider credits"
+  },
+  "cost_note": "Estimated from a versioned cache-miss price table; provider invoice is authoritative.",
+  "results": [
+    {
+      "run": 1,
+      "passed": true,
+      "state": "DRAFT_CREATED",
+      "recommendation_state": "WAITING_CONFIRMATION",
+      "draft_id": "draft_e12958fac4e4",
+      "selection_source": "agent_validated",
+      "duration_ms": 9853,
+      "usage": {
+        "state_transitions": 6,
+        "agent_turns": 8,
+        "orchestrator_requests": 2,
+        "specialist_requests": 6,
+        "stage_model_requests": 8,
+        "tool_calls": 12,
+        "agent_read_tool_calls": 8,
+        "workflow_read_tool_calls": 1,
+        "commit_tool_calls": 3,
+        "reserved_commit_tool_calls": 0,
+        "provider_calls": 4,
+        "retries": 0,
+        "input_tokens": 15998,
+        "output_tokens": 1606,
+        "cost_micro_usd": 0,
+        "wall_time_ms": 9966
+      },
+      "trajectory": {
+        "passed": true,
+        "tool_calls": [
+          "search_catalog",
+          "search_catalog",
+          "search_catalog",
+          "calculate_landed_cost",
+          "calculate_landed_cost",
+          "calculate_landed_cost",
+          "get_budget",
+          "evaluate_policy"
+        ],
+        "duplicate_calls": [],
+        "issues": []
+      },
+      "trace": [
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "STATE",
+          "name": "run.started",
+          "status": "OK",
+          "detail": {},
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.model_call_completed",
+          "status": "SUCCEEDED",
+          "detail": {
+            "agent": "ORCHESTRATOR",
+            "operation": "route",
+            "state_version": 0,
+            "requests": 1,
+            "input_tokens": 1261,
+            "output_tokens": 269,
+            "output_repaired": false
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.execution_started",
+          "status": "OK",
+          "detail": {
+            "execution_id": "ax_04e93586cda8",
+            "task_id": "source_0",
+            "agent": "SOURCING",
+            "state_version": 0,
+            "allowed_tools": [
+              "search_catalog",
+              "calculate_landed_cost"
+            ],
+            "dependency_task_ids": []
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Agent Harness",
+          "kind": "HARNESS",
+          "name": "tool.attempt",
+          "status": "OK",
+          "detail": {
+            "tool": "search_catalog",
+            "provider": "internal_catalog",
+            "attempt": 1,
+            "agent_execution_id": "ax_04e93586cda8"
+          },
+          "duration_ms": 22
+        },
+        {
+          "actor": "Sourcing & Comparison Agent",
+          "kind": "TOOL",
+          "name": "search_catalog",
+          "status": "OK",
+          "detail": {
+            "provider": "internal_catalog",
+            "retrieved": 120,
+            "verified_offers": 12,
+            "excluded_offers": 0,
+            "agent_execution_id": "ax_04e93586cda8"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Agent Harness",
+          "kind": "HARNESS",
+          "name": "tool.attempt",
+          "status": "OK",
+          "detail": {
+            "tool": "search_catalog",
+            "provider": "marketplace_alpha",
+            "attempt": 1,
+            "agent_execution_id": "ax_04e93586cda8"
+          },
+          "duration_ms": 45
+        },
+        {
+          "actor": "Sourcing & Comparison Agent",
+          "kind": "TOOL",
+          "name": "search_catalog",
+          "status": "OK",
+          "detail": {
+            "provider": "marketplace_alpha",
+            "retrieved": 213,
+            "verified_offers": 12,
+            "excluded_offers": 3,
+            "agent_execution_id": "ax_04e93586cda8"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Agent Harness",
+          "kind": "HARNESS",
+          "name": "tool.attempt",
+          "status": "OK",
+          "detail": {
+            "tool": "search_catalog",
+            "provider": "marketplace_beta",
+            "attempt": 1,
+            "agent_execution_id": "ax_04e93586cda8"
+          },
+          "duration_ms": 54
+        },
+        {
+          "actor": "Sourcing & Comparison Agent",
+          "kind": "TOOL",
+          "name": "search_catalog",
+          "status": "OK",
+          "detail": {
+            "provider": "marketplace_beta",
+            "retrieved": 120,
+            "verified_offers": 12,
+            "excluded_offers": 0,
+            "agent_execution_id": "ax_04e93586cda8"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Sourcing & Comparison Agent",
+          "kind": "TOOL",
+          "name": "calculate_landed_cost",
+          "status": "OK",
+          "detail": {
+            "provider": "marketplace_alpha",
+            "offer_id": "offer_0008",
+            "unconditional_total": "114011.60",
+            "agent_execution_id": "ax_04e93586cda8"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Sourcing & Comparison Agent",
+          "kind": "TOOL",
+          "name": "calculate_landed_cost",
+          "status": "OK",
+          "detail": {
+            "provider": "marketplace_alpha",
+            "offer_id": "offer_0020",
+            "unconditional_total": "115034.60",
+            "agent_execution_id": "ax_04e93586cda8"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Sourcing & Comparison Agent",
+          "kind": "TOOL",
+          "name": "calculate_landed_cost",
+          "status": "OK",
+          "detail": {
+            "provider": "marketplace_alpha",
+            "offer_id": "offer_0032",
+            "unconditional_total": "116057.60",
+            "agent_execution_id": "ax_04e93586cda8"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.model_call_completed",
+          "status": "SUCCEEDED",
+          "detail": {
+            "agent": "SOURCING",
+            "operation": "specialist:source_0",
+            "state_version": 0,
+            "requests": 3,
+            "input_tokens": 8994,
+            "output_tokens": 673,
+            "output_repaired": false,
+            "agent_execution_id": "ax_04e93586cda8"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.execution_completed",
+          "status": "SUCCEEDED",
+          "detail": {
+            "execution_id": "ax_04e93586cda8",
+            "task_id": "source_0",
+            "agent": "SOURCING",
+            "status": "SUCCEEDED",
+            "tool_calls": 6,
+            "evidence_refs": [
+              "ev_offer_0008",
+              "fixture://marketplace_alpha/offer_0008"
+            ]
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.execution_started",
+          "status": "OK",
+          "detail": {
+            "execution_id": "ax_b1fd19128a3f",
+            "task_id": "policy_0",
+            "agent": "POLICY",
+            "state_version": 0,
+            "allowed_tools": [
+              "get_budget",
+              "evaluate_policy"
+            ],
+            "dependency_task_ids": [
+              "source_0"
+            ]
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.execution_started",
+          "status": "OK",
+          "detail": {
+            "execution_id": "ax_efab6fdf76d8",
+            "task_id": "verify_0",
+            "agent": "VERIFICATION",
+            "state_version": 0,
+            "allowed_tools": [],
+            "dependency_task_ids": [
+              "source_0"
+            ]
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Policy Reviewer Agent",
+          "kind": "TOOL",
+          "name": "get_budget",
+          "status": "OK",
+          "detail": {
+            "cost_center": "rd_jakarta",
+            "version": 3,
+            "evidence_ref": "budget://demo_cn/rd_jakarta/v3",
+            "agent_execution_id": "ax_b1fd19128a3f"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Policy Reviewer Agent",
+          "kind": "TOOL",
+          "name": "evaluate_policy",
+          "status": "OK",
+          "detail": {
+            "provider": "marketplace_alpha",
+            "offer_id": "offer_0008",
+            "decision": "ALLOW_WITH_APPROVAL",
+            "evidence_refs": [
+              "policy://DEMO-PROC-2026-01/v3",
+              "budget://demo_cn/rd_jakarta/v3"
+            ],
+            "agent_execution_id": "ax_b1fd19128a3f"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.model_call_completed",
+          "status": "SUCCEEDED",
+          "detail": {
+            "agent": "VERIFICATION",
+            "operation": "specialist:verify_0",
+            "state_version": 0,
+            "requests": 1,
+            "input_tokens": 955,
+            "output_tokens": 70,
+            "output_repaired": false,
+            "agent_execution_id": "ax_efab6fdf76d8"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.execution_completed",
+          "status": "SUCCEEDED",
+          "detail": {
+            "execution_id": "ax_efab6fdf76d8",
+            "task_id": "verify_0",
+            "agent": "VERIFICATION",
+            "status": "SUCCEEDED",
+            "tool_calls": 0,
+            "evidence_refs": [
+              "ev_offer_0008",
+              "fixture://marketplace_alpha/offer_0008"
+            ]
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.model_call_completed",
+          "status": "SUCCEEDED",
+          "detail": {
+            "agent": "POLICY",
+            "operation": "specialist:policy_0",
+            "state_version": 0,
+            "requests": 2,
+            "input_tokens": 3023,
+            "output_tokens": 364,
+            "output_repaired": false,
+            "agent_execution_id": "ax_b1fd19128a3f"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.execution_completed",
+          "status": "SUCCEEDED",
+          "detail": {
+            "execution_id": "ax_b1fd19128a3f",
+            "task_id": "policy_0",
+            "agent": "POLICY",
+            "status": "SUCCEEDED",
+            "tool_calls": 2,
+            "evidence_refs": [
+              "ev_offer_0008",
+              "fixture://marketplace_alpha/offer_0008",
+              "budget://demo_cn/rd_jakarta/v3",
+              "policy://DEMO-PROC-2026-01/v3"
+            ]
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "agent.model_call_completed",
+          "status": "SUCCEEDED",
+          "detail": {
+            "agent": "ORCHESTRATOR",
+            "operation": "synthesis",
+            "state_version": 0,
+            "requests": 1,
+            "input_tokens": 1765,
+            "output_tokens": 230,
+            "output_repaired": false
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "MultiAgent Runtime",
+          "kind": "AGENT",
+          "name": "multi_agent.completed",
+          "status": "OK",
+          "detail": {
+            "state_version": 0,
+            "tasks": [
+              "source_0",
+              "policy_0",
+              "verify_0"
+            ],
+            "candidate_count": 1,
+            "stop_condition": "WAIT_CONFIRMATION"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "AGENT",
+          "name": "orchestrator.planned",
+          "status": "OK",
+          "detail": {
+            "next_action": "Proceed with procurement approval workflow for offer_0008 from marketplace_alpha.",
+            "specialist": "procurement_specialist",
+            "rationale": "Policy result allows purchase with approval. Candidate proposal from marketplace_alpha offer_0008 is supported by evidence and verification.",
+            "required_evidence": [
+              "ev_offer_0008",
+              "fixture://marketplace_alpha/offer_0008",
+              "budget://demo_cn/rd_jakarta/v3",
+              "policy://DEMO-PROC-2026-01/v3"
+            ],
+            "candidate_proposals": [
+              {
+                "provider": "marketplace_alpha",
+                "offer_id": "offer_0008",
+                "evidence_refs": [
+                  "ev_offer_0008",
+                  "fixture://marketplace_alpha/offer_0008",
+                  "budget://demo_cn/rd_jakarta/v3",
+                  "policy://DEMO-PROC-2026-01/v3"
+                ]
+              }
+            ],
+            "stop_condition": "wait_for_user_confirmation",
+            "message_count": 1
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Clarification Agent",
+          "kind": "AGENT",
+          "name": "clarification.decision",
+          "status": "OK",
+          "detail": {
+            "missing_fields": [],
+            "questions": [],
+            "ready_for_sourcing": true,
+            "can_search_in_parallel": true,
+            "rationale": "按预算、数量、最低配置、交付地和税口径的信息价值排序；剩余 3 轮，本轮询问 0 个字段"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "STATE",
+          "name": "state.transition",
+          "status": "OK",
+          "detail": {
+            "from": "COLLECTING",
+            "to": "SOURCING",
+            "reason": "minimum requirement is complete",
+            "state_version": 1
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Sourcing & Comparison Agent",
+          "kind": "TOOL",
+          "name": "search_catalog",
+          "status": "OK",
+          "detail": {
+            "provider": "internal_catalog",
+            "retrieved": 120,
+            "verified_offers": 12,
+            "conflict_vetoes": 0,
+            "review_required": 0,
+            "risk": "READ",
+            "reused_agent_tool_result": true
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Sourcing & Comparison Agent",
+          "kind": "TOOL",
+          "name": "search_catalog",
+          "status": "OK",
+          "detail": {
+            "provider": "marketplace_alpha",
+            "retrieved": 213,
+            "verified_offers": 12,
+            "conflict_vetoes": 2,
+            "review_required": 1,
+            "risk": "READ",
+            "reused_agent_tool_result": true
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Sourcing & Comparison Agent",
+          "kind": "TOOL",
+          "name": "search_catalog",
+          "status": "OK",
+          "detail": {
+            "provider": "marketplace_beta",
+            "retrieved": 120,
+            "verified_offers": 12,
+            "conflict_vetoes": 0,
+            "review_required": 0,
+            "risk": "READ",
+            "reused_agent_tool_result": true
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "STATE",
+          "name": "state.transition",
+          "status": "OK",
+          "detail": {
+            "from": "SOURCING",
+            "to": "REVIEWING",
+            "reason": "catalog evidence collected",
+            "state_version": 2
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "AGENT",
+          "name": "agent.recommendation_validated",
+          "status": "OK",
+          "detail": {
+            "provider": "marketplace_alpha",
+            "offer_id": "offer_0008",
+            "evidence_refs": [
+              "ev_offer_0008",
+              "fixture://marketplace_alpha/offer_0008",
+              "budget://demo_cn/rd_jakarta/v3",
+              "policy://DEMO-PROC-2026-01/v3"
+            ]
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Policy Reviewer Agent",
+          "kind": "AGENT",
+          "name": "policy.reviewed",
+          "status": "OK",
+          "detail": {
+            "candidates": 36,
+            "match_rejected": 2,
+            "review_required": 1,
+            "decision": "ALLOW_WITH_APPROVAL",
+            "approval_route": [
+              "line_manager",
+              "cost_center_owner",
+              "procurement_manager",
+              "procurement_specialist"
+            ]
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "AGENT",
+          "name": "recommendation.composed",
+          "status": "OK",
+          "detail": {
+            "best_offer": "offer_0008",
+            "evidence_refs": [
+              "ev_offer_0008",
+              "fixture://marketplace_alpha/offer_0008",
+              "policy://DEMO-PROC-2026-01/v3",
+              "budget://demo_cn/rd_jakarta/v3"
+            ],
+            "selection_source": "agent_validated"
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "STATE",
+          "name": "state.transition",
+          "status": "OK",
+          "detail": {
+            "from": "REVIEWING",
+            "to": "WAITING_CONFIRMATION",
+            "reason": "recommendation is ready for explicit confirmation",
+            "state_version": 3
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Agent Harness",
+          "kind": "HARNESS",
+          "name": "budget.commit_reserved",
+          "status": "OK",
+          "detail": {
+            "amount": 3,
+            "limit": 3
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "STATE",
+          "name": "state.transition",
+          "status": "OK",
+          "detail": {
+            "from": "WAITING_CONFIRMATION",
+            "to": "REVALIDATING",
+            "reason": "user confirmed the quoted action",
+            "state_version": 4
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Agent Harness",
+          "kind": "HARNESS",
+          "name": "tool.attempt",
+          "status": "OK",
+          "detail": {
+            "tool": "revalidate_quote",
+            "provider": "marketplace_alpha",
+            "attempt": 1
+          },
+          "duration_ms": 0
+        },
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "STATE",
+          "name": "state.transition",
+          "status": "OK",
+          "detail": {
+            "from": "REVALIDATING",
+            "to": "DRAFT_CREATING",
+            "reason": "revalidation passed",
+            "state_version": 5
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "STATE",
+          "name": "state.transition",
+          "status": "OK",
+          "detail": {
+            "from": "DRAFT_CREATING",
+            "to": "DRAFT_CREATED",
+            "reason": "requisition draft created",
+            "state_version": 6
+          },
+          "duration_ms": null
+        },
+        {
+          "actor": "Procurement Orchestrator",
+          "kind": "TOOL",
+          "name": "create_requisition_draft",
+          "status": "OK",
+          "detail": {
+            "risk": "BUSINESS_WRITE",
+            "draft_id": "draft_e12958fac4e4"
+          },
+          "duration_ms": null
+        }
+      ]
+    }
+  ]
+}

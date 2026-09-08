@@ -8,24 +8,45 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
-from procure_pilot.agents.runtime import DeterministicAgentPlanner
+from agents.tool_context import ToolContext
+
+from procure_pilot.agents.runtime import AgentPlan, DeterministicAgentPlanner
+from procure_pilot.agents.tools import (
+    AgentCandidateProposal,
+    AgentRuntimeContext,
+    build_function_tools,
+)
+from procure_pilot.domain.memory import LongTermMemory, MemoryScope
 from procure_pilot.domain.models import (
     BudgetResource,
     BundleType,
     MatchDecisionType,
+    Message,
+    Money,
     PolicyDecision,
+    ProcurementRequirement,
     ProcurementRun,
     ProductCondition,
     RunState,
 )
+from procure_pilot.evals.trajectory import grade_agent_trajectory
 from procure_pilot.fixtures.catalog import (
     FixtureCatalogAdapter,
     build_hard_case_raw_offers,
     build_raw_catalog,
 )
 from procure_pilot.fixtures.enterprise import FixtureEnterpriseGateway
-from procure_pilot.harness.runtime import AgentHarness, HarnessBudgetExceeded, RunRepository
+from procure_pilot.harness.runtime import (
+    AgentHarness,
+    HarnessBudgetExceeded,
+    PersistenceConflictError,
+    RunRepository,
+)
+from procure_pilot.persistence.memory_repository import SqlAlchemyMemoryRepository
+from procure_pilot.persistence.models import Base
+from procure_pilot.persistence.repository import SqlAlchemyRunRepository
 from procure_pilot.services.engine import ProcurementEngine
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -469,6 +490,396 @@ async def check_harness_003() -> tuple[bool, str]:
     )
 
 
+async def check_agent_001() -> tuple[bool, str]:
+    tools = build_function_tools()
+    search_schema = tools["search_catalog"].params_json_schema
+    forbidden = {"create_requisition_draft", "approve_requisition", "place_order", "pay"}
+    passed = (
+        set(tools)
+        == {
+            "inspect_procurement_requirement",
+            "get_budget",
+            "search_catalog",
+            "calculate_landed_cost",
+            "evaluate_policy",
+        }
+        and not forbidden.intersection(tools)
+        and search_schema.get("additionalProperties") is False
+    )
+    return (
+        passed,
+        f"tools={sorted(tools)}, strict={search_schema.get('additionalProperties') is False}",
+    )
+
+
+async def check_agent_002() -> tuple[bool, str]:
+    run = ProcurementRun(
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        requirement=ProcurementRequirement(
+            quantity=20,
+            unit_budget=Money(amount="8000"),
+            budget_tax_included=True,
+            delivery_city="Jakarta",
+            delivery_days=14,
+            minimum_ram_gb=32,
+            minimum_storage_gb=1024,
+        ),
+    )
+    harness = AgentHarness(secret="eval-agent-tools")
+    harness.initialize_run(run)
+    context = AgentRuntimeContext(
+        run=run,
+        catalog=FixtureCatalogAdapter(),
+        enterprise=FixtureEnterpriseGateway(),
+        harness=harness,
+        roles=("EMPLOYEE",),
+    )
+    tools = build_function_tools()
+    search = tools["search_catalog"]
+    search_arguments = '{"provider":"internal_catalog"}'
+    search_result = await search.on_invoke_tool(
+        ToolContext(
+            context,
+            tool_name=search.name,
+            tool_call_id="eval-search",
+            tool_arguments=search_arguments,
+        ),
+        search_arguments,
+    )
+    cost = tools["calculate_landed_cost"]
+    invented_arguments = '{"provider":"internal_catalog","offer_id":"model-invented-offer"}'
+    rejected = await cost.on_invoke_tool(
+        ToolContext(
+            context,
+            tool_name=cost.name,
+            tool_call_id="eval-cost",
+            tool_arguments=invented_arguments,
+        ),
+        invented_arguments,
+    )
+    passed = (
+        search_result.verified_offer_count > 0
+        and "not returned by search_catalog" in rejected
+        and run.execution_usage.provider_calls == 1
+    )
+    return passed, (
+        f"verified={search_result.verified_offer_count}, invented_offer={rejected}, "
+        f"provider_calls={run.execution_usage.provider_calls}"
+    )
+
+
+async def check_agent_003() -> tuple[bool, str]:
+    engine = make_engine()
+    first = await _start(engine, "帮我采购电脑")
+    second = await engine.continue_run(
+        run_id=first.run.run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message="20台，单台8000元含税，送雅加达，两周内，最低32GB和1TB",
+    )
+    plans = [event for event in second.run.trace if event.name == "runtime.plan_applied"]
+    passed = (
+        len(plans) == 2
+        and plans[-1].detail.get("message_count") == 3
+        and second.run.execution_usage.agent_turns == 2
+    )
+    return passed, (
+        f"plans={len(plans)}, messages={plans[-1].detail.get('message_count')}, "
+        f"agent_turns={second.run.execution_usage.agent_turns}"
+    )
+
+
+async def _invoke_agent_tool(tool, context: AgentRuntimeContext, arguments: str):
+    return await tool.on_invoke_tool(
+        ToolContext(
+            context,
+            tool_name=tool.name,
+            tool_call_id=f"eval-{tool.name}",
+            tool_arguments=arguments,
+        ),
+        arguments,
+    )
+
+
+class _EvidenceBackedPlanner:
+    def __init__(self) -> None:
+        tools = build_function_tools()
+        self.search_tool = tools["search_catalog"]
+        self.selected_offer_id = ""
+
+    async def plan(
+        self,
+        messages,
+        *,
+        context: AgentRuntimeContext | None = None,
+    ) -> AgentPlan:
+        assert context is not None
+        catalog = await _invoke_agent_tool(
+            self.search_tool,
+            context,
+            '{"provider":"internal_catalog"}',
+        )
+        selected = catalog.offers[-1]
+        self.selected_offer_id = selected.offer_id
+        return AgentPlan(
+            next_action="recommend",
+            specialist="Sourcing Agent",
+            rationale="候选来自已验证目录；其成本与制度由服务端校验",
+            candidate_proposals=[
+                AgentCandidateProposal(
+                    provider="internal_catalog",
+                    offer_id=selected.offer_id,
+                    evidence_refs=selected.evidence_refs,
+                )
+            ],
+            stop_condition="wait_for_user_confirmation",
+        )
+
+
+async def check_agent_004() -> tuple[bool, str]:
+    planner = _EvidenceBackedPlanner()
+    engine = make_engine()
+    engine.planner = planner
+    response = await _start(engine)
+    recommendation = response.run.recommendation
+    passed = (
+        recommendation.selection_source == "agent_validated"
+        and recommendation.best_overall.offer.offer_id == planner.selected_offer_id
+        and any(event.name == "agent.recommendation_validated" for event in response.run.trace)
+    )
+    return passed, (
+        f"source={recommendation.selection_source}, "
+        f"selected={recommendation.best_overall.offer.offer_id}"
+    )
+
+
+class _InventedCandidatePlanner:
+    async def plan(
+        self,
+        messages,
+        *,
+        context: AgentRuntimeContext | None = None,
+    ) -> AgentPlan:
+        return AgentPlan(
+            next_action="recommend",
+            specialist="Procurement Orchestrator",
+            rationale="invented",
+            candidate_proposals=[
+                AgentCandidateProposal(
+                    provider="internal_catalog",
+                    offer_id="model-invented-offer",
+                    evidence_refs=["model-invented-evidence"],
+                )
+            ],
+        )
+
+
+async def check_agent_005() -> tuple[bool, str]:
+    engine = make_engine()
+    engine.planner = _InventedCandidatePlanner()
+    response = await _start(engine)
+    recommendation = response.run.recommendation
+    rejected = any(
+        event.name == "agent.recommendation_rejected" and event.status == "REJECTED"
+        for event in response.run.trace
+    )
+    passed = recommendation.selection_source == "deterministic_score" and rejected
+    return passed, f"source={recommendation.selection_source}, rejected={rejected}"
+
+
+async def check_agent_006() -> tuple[bool, str]:
+    engine = make_engine()
+    engine.planner = _EvidenceBackedPlanner()
+    response = await _start(engine)
+    grade = grade_agent_trajectory(response.run)
+    return grade.passed, grade.model_dump_json()
+
+
+class _DuplicateSearchPlanner:
+    def __init__(self) -> None:
+        self.search_tool = build_function_tools()["search_catalog"]
+
+    async def plan(
+        self,
+        messages,
+        *,
+        context: AgentRuntimeContext | None = None,
+    ) -> AgentPlan:
+        assert context is not None
+        arguments = '{"provider":"internal_catalog"}'
+        await _invoke_agent_tool(self.search_tool, context, arguments)
+        await _invoke_agent_tool(self.search_tool, context, arguments)
+        return AgentPlan(
+            next_action="source_and_review",
+            specialist="Sourcing & Comparison Agent",
+            rationale="duplicate search for grader fixture",
+        )
+
+
+async def check_agent_007() -> tuple[bool, str]:
+    engine = make_engine()
+    engine.planner = _DuplicateSearchPlanner()
+    response = await _start(engine)
+    grade = grade_agent_trajectory(response.run)
+    detected = not grade.passed and "search_catalog:internal_catalog:" in grade.duplicate_calls
+    return detected, grade.model_dump_json()
+
+
+def _database_engine(directory: str) -> tuple[ProcurementEngine, SqlAlchemyRunRepository]:
+    repository = SqlAlchemyRunRepository(f"sqlite+pysqlite:///{directory}/runs.db")
+    repository.create_schema()
+    engine = ProcurementEngine(
+        catalog=FixtureCatalogAdapter(),
+        enterprise=FixtureEnterpriseGateway(),
+        repository=repository,
+        harness=AgentHarness(secret="eval-database"),
+        planner=DeterministicAgentPlanner(),
+    )
+    return engine, repository
+
+
+async def check_database_001() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        engine, repository = _database_engine(directory)
+        recommendation = await _start(engine)
+        completed = await engine.confirm(
+            run_id=recommendation.run.run_id,
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            action_token=recommendation.run.action_token,
+        )
+        restored = repository.get(
+            completed.run.run_id,
+            tenant_id="demo_cn",
+            user_id="employee_001",
+        )
+        passed = (
+            restored.state == RunState.DRAFT_CREATED
+            and restored.draft is not None
+            and restored.messages == completed.run.messages
+            and restored.trace == completed.run.trace
+        )
+        return passed, (
+            f"state={restored.state}, messages={len(restored.messages)}, "
+            f"trace={len(restored.trace)}"
+        )
+
+
+async def check_database_002() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        _, repository = _database_engine(directory)
+        run = ProcurementRun(tenant_id="demo_cn", user_id="employee_001")
+        repository.save(run)
+        blocked = 0
+        for run_id in (run.run_id, "run_does_not_exist"):
+            try:
+                repository.get(
+                    run_id,
+                    tenant_id="demo_id",
+                    user_id="employee_101",
+                )
+            except PermissionError:
+                blocked += 1
+        return blocked == 2, f"indistinguishable_denials={blocked}/2"
+
+
+async def check_database_003() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        _, repository = _database_engine(directory)
+        run = ProcurementRun(tenant_id="demo_cn", user_id="employee_001")
+        repository.save(run)
+        first = repository.get(run.run_id)
+        stale = repository.get(run.run_id)
+        first.messages.append(Message(role="user", content="first writer"))
+        repository.save(first)
+        stale.messages.append(Message(role="user", content="stale writer"))
+        try:
+            repository.save(stale)
+        except PersistenceConflictError:
+            restored = repository.get(run.run_id)
+            passed = [message.content for message in restored.messages] == ["first writer"]
+            return passed, "stale writer rejected"
+        return False, "stale writer overwrote the current version"
+
+
+def _memory_repository(directory: str) -> SqlAlchemyMemoryRepository:
+    repository = SqlAlchemyMemoryRepository(f"sqlite+pysqlite:///{directory}/memory.db")
+    Base.metadata.create_all(repository.engine)
+    return repository
+
+
+def _memory(scope: MemoryScope = MemoryScope.PROFILE) -> LongTermMemory:
+    return LongTermMemory(
+        tenant_id="demo_cn",
+        owner_user_id="employee_001",
+        team_id="R&D" if scope in {MemoryScope.TEAM, MemoryScope.SEMANTIC} else None,
+        scope=scope,
+        key="preferred_laptop_ram",
+        content="开发笔记本优先 32GB 内存",
+        source_ref="user://explicit-memory",
+        consent_id="consent_eval_001",
+    )
+
+
+async def check_memory_001() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        repository = _memory_repository(directory)
+        memory = repository.create(_memory(), actor_user_id="employee_001")
+        owner_visible = repository.list(tenant_id="demo_cn", user_id="employee_001", team_id="R&D")
+        other_visible = repository.list(tenant_id="demo_cn", user_id="employee_002", team_id="R&D")
+        other_tenant = repository.list(tenant_id="demo_id", user_id="employee_101", team_id="R&D")
+        passed = [item.memory_id for item in owner_visible] == [memory.memory_id]
+        passed = passed and other_visible == [] and other_tenant == []
+        return passed, "personal memory visible only to owner in tenant"
+
+
+async def check_memory_002() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        repository = _memory_repository(directory)
+        memory = repository.create(_memory(MemoryScope.TEAM), actor_user_id="employee_001")
+        visible = repository.list(tenant_id="demo_cn", user_id="employee_002", team_id="R&D")
+        blocked = False
+        try:
+            repository.update_content(
+                memory.memory_id,
+                tenant_id="demo_cn",
+                actor_user_id="employee_002",
+                content="unauthorized edit",
+                expected_version=0,
+            )
+        except PermissionError:
+            blocked = True
+        return len(visible) == 1 and blocked, f"team_visible={len(visible)}, edit_blocked={blocked}"
+
+
+async def check_memory_003() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        repository = _memory_repository(directory)
+        memory = repository.create(_memory(), actor_user_id="employee_001")
+        updated = repository.update_content(
+            memory.memory_id,
+            tenant_id="demo_cn",
+            actor_user_id="employee_001",
+            content="开发笔记本优先 64GB 内存",
+            expected_version=0,
+        )
+        repository.delete(
+            memory.memory_id,
+            tenant_id="demo_cn",
+            actor_user_id="employee_001",
+            expected_version=1,
+        )
+        audit = repository.audit(
+            memory.memory_id,
+            tenant_id="demo_cn",
+            owner_user_id="employee_001",
+        )
+        actions = [event.action for event in audit]
+        passed = updated.version == 1 and actions == ["CREATED", "UPDATED", "DELETED"]
+        return passed, f"version={updated.version}, audit={actions}"
+
+
 async def check_replay_001() -> tuple[bool, str]:
     first = await _start(make_engine())
     second = await _start(make_engine())
@@ -513,6 +924,19 @@ CHECKS: dict[str, Callable[[], Awaitable[tuple[bool, str]]]] = {
     "harness-001": check_harness_001,
     "harness-002": check_harness_002,
     "harness-003": check_harness_003,
+    "agent-001": check_agent_001,
+    "agent-002": check_agent_002,
+    "agent-003": check_agent_003,
+    "agent-004": check_agent_004,
+    "agent-005": check_agent_005,
+    "agent-006": check_agent_006,
+    "agent-007": check_agent_007,
+    "database-001": check_database_001,
+    "database-002": check_database_002,
+    "database-003": check_database_003,
+    "memory-001": check_memory_001,
+    "memory-002": check_memory_002,
+    "memory-003": check_memory_003,
     "replay-001": check_replay_001,
 }
 
@@ -553,6 +977,19 @@ async def run_evaluation() -> dict:
         "harness-001",
         "harness-002",
         "harness-003",
+        "agent-001",
+        "agent-002",
+        "agent-003",
+        "agent-004",
+        "agent-005",
+        "agent-006",
+        "agent-007",
+        "database-001",
+        "database-002",
+        "database-003",
+        "memory-001",
+        "memory-002",
+        "memory-003",
         "replay-001",
     }
     match_metrics = grade_catalog_matching()
@@ -609,6 +1046,45 @@ async def run_evaluation() -> dict:
             else 0.0,
             "retry_circuit_policy_pass_rate": 1.0
             if next(item for item in results if item.case_id == "harness-003").passed
+            else 0.0,
+            "agent_tool_contract_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "agent-001").passed
+            else 0.0,
+            "agent_grounded_tool_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "agent-002").passed
+            else 0.0,
+            "agent_multiturn_context_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "agent-003").passed
+            else 0.0,
+            "agent_validated_recommendation_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "agent-004").passed
+            else 0.0,
+            "agent_candidate_veto_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "agent-005").passed
+            else 0.0,
+            "agent_trajectory_contract_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "agent-006").passed
+            else 0.0,
+            "agent_duplicate_call_detection_rate": 1.0
+            if next(item for item in results if item.case_id == "agent-007").passed
+            else 0.0,
+            "database_round_trip_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "database-001").passed
+            else 0.0,
+            "database_tenant_scope_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "database-002").passed
+            else 0.0,
+            "database_optimistic_lock_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "database-003").passed
+            else 0.0,
+            "memory_personal_scope_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "memory-001").passed
+            else 0.0,
+            "memory_team_scope_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "memory-002").passed
+            else 0.0,
+            "memory_lifecycle_audit_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "memory-003").passed
             else 0.0,
         },
         "results": [asdict(result) for result in results],

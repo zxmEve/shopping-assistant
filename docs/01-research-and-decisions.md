@@ -41,7 +41,7 @@
 
 不再受既有技术栈约束，核心后端统一采用 Python 3.12。原因不是“Python 更适合所有企业系统”，而是这个项目的核心竞争力是 Agent 编排、评测、数据合成、浏览器自动化和快速实验；这些能力在 Python 生态中集成成本最低，也与多数公开 benchmark 的运行环境一致。
 
-API 使用 FastAPI/Pydantic，在线 Agent 使用 OpenAI Agents SDK；目标架构中，耗时且需要恢复的流程交给 Temporal Python SDK，但第一阶段先用最小 Harness 跑通核心闭环，Temporal 延后接入。生产事实仍通过确定性领域服务和 Port/Adapter 暴露，不能让 SDK session 代替业务状态。前端继续使用 TypeScript，不强行全栈单语言。
+API 使用 FastAPI/Pydantic，在线 Agent 使用 OpenAI Agents SDK。当前顺序先完成真实 Agent 工具闭环，再接 PostgreSQL 和长期记忆/RAG；耗时且需要恢复的流程仍可在后续 M5 交给 Temporal Python SDK。生产事实始终通过确定性领域服务和 Port/Adapter 暴露，不能让 SDK session 代替业务状态。前端继续使用 TypeScript，不强行全栈单语言。
 
 ### 3.2 企业采购，而不是泛消费推荐
 
@@ -56,11 +56,11 @@ API 使用 FastAPI/Pydantic，在线 Agent 使用 OpenAI Agents SDK；目标架�
 
 这让项目能够自然承接统一审批、预算费用、权限治理、幂等和异步恢复经验。
 
-### 3.3 Manager + specialists-as-tools
+### 3.3 确定性 Runtime + 两个窄 Agent
 
-由一个始终面向用户的 Procurement Orchestrator 管理对话和状态，需求澄清、商品归一、制度解释、排序与核验由 specialist agent 提供结构化结果。这样能保持权限边界、统一事实和稳定 UX。
+由确定性的 Application Runtime 管理对话和状态，只在需求理解与寻源权衡两个环节调用 Requirement/Sourcing Agent；商品归一、制度、排序硬约束与核验由服务端代码完成。这样能保持权限边界、统一事实和稳定 UX。
 
-平台查询是确定性 provider tool，不把每个平台包装成 LLM Agent。handoff 作为可选知识点保留，但核心链路使用 manager pattern，避免责任转移后上下文和审批权限混乱。
+平台查询是确定性 provider tool，不把每个平台包装成 LLM Agent。核心链路也不使用动态 handoff：Runtime 根据状态执行一个窄角色，避免责任转移后上下文和审批权限混乱。
 
 ### 3.4 显式 Workflow 包住 Agent Loop
 
@@ -100,7 +100,7 @@ API 使用 FastAPI/Pydantic，在线 Agent 使用 OpenAI Agents SDK；目标架�
 | Web | React + TypeScript + Vite | 与现有项目一致；实现聊天、商品卡、比较表和 trace/eval 控制台 |
 | API | Python 3.12 + FastAPI + Pydantic v2 + SSE | 原生 async、schema-first、快速构建工具和模拟服务 |
 | Agent | OpenAI Agents SDK + Responses API，经 `ModelGateway` 隔离 | 直接使用 agents-as-tools、guardrails、sessions、HITL 与 tracing 原语 |
-| Workflow/Harness | 第一阶段自建最小 Harness；第二阶段接入 Temporal Python SDK | 先验证工具权限、预算、record/replay 与领域状态；再用 Temporal 补 durable execution、timer、retry 和恢复 |
+| Workflow/Harness | 先用自建最小 Harness 保护 Agent 工具；M5 再评估 Temporal Python SDK | 先稳定 Agent、数据库和记忆数据边界；再用 Temporal 补 durable execution、timer、retry 和恢复，避免过早固化工作流 |
 | 数据 | PostgreSQL + pgvector + Alembic/SQLAlchemy 2 | 领域事实、会话、记忆、报价快照、向量召回与审计 |
 | 缓存/锁 | Redis | TTL cache、rate limit、短锁；不能替代数据库事实与状态约束 |
 | 异步 | Transactional Outbox + Kafka-compatible bus；本地可用 Redpanda | 价格监控、通知、评测、审批同步和可恢复消费 |

@@ -1,0 +1,141 @@
+version: memory-registry-v1
+
+categories:
+  - category_id: CAT-COMPUTER
+    code: computer
+    key_segment: computer
+    localized_names:
+      zh-CN: 计算机设备
+      en-US: Computer equipment
+    aliases: [电脑, computer]
+  - category_id: CAT-COMPUTER-LAPTOP
+    code: computer.laptop
+    key_segment: laptop
+    parent_id: CAT-COMPUTER
+    localized_names:
+      zh-CN: 笔记本电脑
+      en-US: Laptop
+    aliases: [笔记本, 笔记本电脑, 电脑, laptop, notebook, 开发电脑, 开发笔记本]
+
+tags:
+  - tag_id: TAG-DEVELOPMENT
+    code: development
+    aliases: [开发, 研发, Docker开发]
+    applicable_categories: [CAT-COMPUTER-LAPTOP]
+  - tag_id: TAG-WARRANTY-PRIORITY
+    code: warranty-priority
+    aliases: [重视保修, 保修优先, 三年保修优先]
+    applicable_categories: [CAT-COMPUTER-LAPTOP]
+  - tag_id: TAG-DELIVERY-PRIORITY
+    code: delivery-priority
+    aliases: [尽快交付, 交付优先, 急用]
+    applicable_categories: [CAT-COMPUTER-LAPTOP]
+
+keys:
+  - key: procurement.category.minimum_ram_gb
+    definition_version: 1
+    allowed_scopes: [PROFILE, TEAM]
+    applicable_categories: [CAT-COMPUTER-LAPTOP]
+    applies_to_agents: [REQUIREMENT]
+    sensitivity: PERSONAL
+    merge_strategy: REPLACE
+    value_schema:
+      type: object
+      required: [value, unit]
+      additionalProperties: false
+      properties:
+        value: {type: integer, minimum: 4, maximum: 512}
+        unit: {type: string, enum: [GB]}
+  - key: procurement.category.minimum_storage_gb
+    definition_version: 1
+    allowed_scopes: [PROFILE, TEAM]
+    applicable_categories: [CAT-COMPUTER-LAPTOP]
+    applies_to_agents: [REQUIREMENT]
+    sensitivity: PERSONAL
+    merge_strategy: REPLACE
+    value_schema:
+      type: object
+      required: [value, unit]
+      additionalProperties: false
+      properties:
+        value: {type: integer, minimum: 128, maximum: 16384}
+        unit: {type: string, enum: [GB]}
+  - key: procurement.category.preferred_brand
+    definition_version: 1
+    allowed_scopes: [PROFILE, TEAM]
+    applicable_categories: [CAT-COMPUTER-LAPTOP]
+    applies_to_agents: [SOURCING]
+    sensitivity: PERSONAL
+    merge_strategy: REPLACE
+    value_schema:
+      type: object
+      required: [brands]
+      additionalProperties: false
+      properties:
+        brands:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items: {type: string, minLength: 1, maxLength: 80}
+  - key: procurement.category.preferred_warranty_months
+    definition_version: 1
+    allowed_scopes: [PROFILE, TEAM]
+    applicable_categories: [CAT-COMPUTER-LAPTOP]
+    applies_to_agents: [SOURCING]
+    sensitivity: PERSONAL
+    merge_strategy: REPLACE
+    value_schema:
+      type: object
+      required: [minimum_months]
+      additionalProperties: false
+      properties:
+        minimum_months: {type: integer, minimum: 0, maximum: 120}
+  - key: procurement.category.preferred_supplier
+    definition_version: 1
+    allowed_scopes: [PROFILE, TEAM, EPISODIC]
+    applicable_categories: [CAT-COMPUTER-LAPTOP]
+    applies_to_agents: [SOURCING]
+    sensitivity: PERSONAL
+    merge_strategy: KEEP_LATEST
+    default_ttl_days: 365
+    value_schema:
+      type: object
+      required: [providers]
+      additionalProperties: false
+      properties:
+        providers:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            type: string
+            enum: [internal_catalog, marketplace_alpha, marketplace_beta]
+  - key: procurement.default.delivery_preference
+    definition_version: 1
+    allowed_scopes: [PROFILE]
+    applicable_categories: [CAT-COMPUTER-LAPTOP]
+    applies_to_agents: [REQUIREMENT, SOURCING]
+    sensitivity: PERSONAL
+    merge_strategy: REPLACE
+    value_schema:
+      type: object
+      required: [city]
+      additionalProperties: false
+      properties:
+        city: {type: string, minLength: 1, maxLength: 120}
+        maximum_days: {type: integer, minimum: 1, maximum: 365}
+  - key: team.device_standard.developer_laptop
+    definition_version: 1
+    allowed_scopes: [TEAM]
+    applicable_categories: [CAT-COMPUTER-LAPTOP]
+    applies_to_agents: [REQUIREMENT, SOURCING]
+    sensitivity: LOW
+    merge_strategy: REPLACE
+    value_schema:
+      type: object
+      required: [minimum_ram_gb, minimum_storage_gb, minimum_warranty_months]
+      additionalProperties: false
+      properties:
+        minimum_ram_gb: {type: integer, minimum: 4, maximum: 512}
+        minimum_storage_gb: {type: integer, minimum: 128, maximum: 16384}
+        minimum_warranty_months: {type: integer, minimum: 0, maximum: 120}

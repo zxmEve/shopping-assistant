@@ -1,15 +1,42 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: procure_pilot
+      POSTGRES_USER: procure
+      POSTGRES_PASSWORD: procure-local-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U procure -d procure_pilot"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
   backend:
     build: ./backend
+    command: >-
+      sh -c "uv run alembic upgrade head &&
+      uv run uvicorn procure_pilot.api.app:app --host 0.0.0.0 --port 8000"
     environment:
       PROCURE_ENVIRONMENT: fixture
+      PROCURE_REPOSITORY_BACKEND: postgres
+      PROCURE_DATABASE_URL: postgresql+psycopg://procure:procure-local-only@postgres:5432/procure_pilot
       PROCURE_AGENT_MODE: ${PROCURE_AGENT_MODE:-deterministic}
+      PROCURE_AGENT_TOPOLOGY: ${PROCURE_AGENT_TOPOLOGY:-two_agent}
+      PROCURE_MODEL_PROVIDER: ${PROCURE_MODEL_PROVIDER:-openai}
       PROCURE_OPENAI_MODEL: ${PROCURE_OPENAI_MODEL:-gpt-5-mini}
+      PROCURE_ORCHESTRATOR_MODEL: ${PROCURE_ORCHESTRATOR_MODEL:-}
+      PROCURE_SPECIALIST_MODEL: ${PROCURE_SPECIALIST_MODEL:-}
+      PROCURE_VERIFIER_MODEL: ${PROCURE_VERIFIER_MODEL:-}
+      PROCURE_OPENAI_BASE_URL: ${PROCURE_OPENAI_BASE_URL:-}
       PROCURE_OPENAI_API_KEY: ${PROCURE_OPENAI_API_KEY:-}
       PROCURE_ACTION_TOKEN_SECRET: ${PROCURE_ACTION_TOKEN_SECRET:-local-compose-secret}
-      PROCURE_RUN_STORE_PATH: /app/.data/runs.json
-    volumes:
-      - run-data:/app/.data
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
@@ -19,4 +46,4 @@ services:
       - "5173:80"
 
 volumes:
-  run-data:
+  postgres-data:

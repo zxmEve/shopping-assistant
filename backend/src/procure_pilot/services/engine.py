@@ -7,6 +7,7 @@ import re
 from decimal import Decimal
 
 from procure_pilot.agents.runtime import AgentPlanner, DeterministicAgentPlanner
+from procure_pilot.agents.tools import AgentRuntimeContext
 from procure_pilot.domain.models import (
     BudgetResource,
     Candidate,
@@ -25,6 +26,7 @@ from procure_pilot.domain.models import (
     RevalidationChange,
     RunResponse,
     RunState,
+    ToolBudgetPool,
 )
 from procure_pilot.fixtures.catalog import PROVIDERS, FixtureCatalogAdapter, ProviderError
 from procure_pilot.fixtures.enterprise import FixtureEnterpriseGateway
@@ -32,9 +34,17 @@ from procure_pilot.harness.runtime import (
     AgentHarness,
     CircuitOpenError,
     HarnessBudgetExceeded,
-    RunRepository,
+    RunRepositoryPort,
     ToolTimeoutError,
 )
+from procure_pilot.services.context import (
+    DEFAULT_CONTEXT_POLICY,
+    ContextAssembler,
+    ContextPolicy,
+    MemoryReader,
+)
+from procure_pilot.services.costing import calculate_landed_cost
+from procure_pilot.services.memory_registry import MemoryRegistry
 
 QUESTION_LABELS = {
     "quantity": "需要采购多少台？",
@@ -61,16 +71,46 @@ class ProcurementEngine:
         *,
         catalog: FixtureCatalogAdapter,
         enterprise: FixtureEnterpriseGateway,
-        repository: RunRepository,
+        repository: RunRepositoryPort,
         harness: AgentHarness,
         planner: AgentPlanner | None = None,
+        memory_repository: MemoryReader | None = None,
+        context_policy: ContextPolicy = DEFAULT_CONTEXT_POLICY,
+        memory_registry: MemoryRegistry | None = None,
     ) -> None:
         self.catalog = catalog
         self.enterprise = enterprise
         self.repository = repository
         self.harness = harness
         self.planner = planner or DeterministicAgentPlanner()
+        self.memory_repository = memory_repository
+        self.context_policy = context_policy
+        self.memory_registry = memory_registry
+        self.context_assembler = ContextAssembler(
+            memory_repository,
+            policy=context_policy,
+            memory_registry=memory_registry,
+        )
         self._run_locks: dict[str, asyncio.Lock] = {}
+
+    def configure_memory_context(
+        self,
+        memory_repository: MemoryReader | None,
+        *,
+        context_policy: ContextPolicy | None = None,
+        memory_registry: MemoryRegistry | None = None,
+    ) -> None:
+        """Bind the same memory repository used by the API to Agent context assembly."""
+        self.memory_repository = memory_repository
+        if context_policy is not None:
+            self.context_policy = context_policy
+        if memory_registry is not None:
+            self.memory_registry = memory_registry
+        self.context_assembler = ContextAssembler(
+            memory_repository,
+            policy=self.context_policy,
+            memory_registry=self.memory_registry,
+        )
 
     async def start(
         self,
@@ -84,22 +124,17 @@ class ProcurementEngine:
         run = ProcurementRun(tenant_id=tenant_id, user_id=user_id, scenario=scenario)
         self.harness.initialize_run(run)
         try:
-            self.harness.trace(
-                run, actor="Procurement Orchestrator", kind="STATE", name="run.started"
-            )
-            plan = await self.harness.execute_agent_turn(run, lambda: self.planner.plan(message))
-            self.harness.trace(
-                run,
-                actor="Procurement Orchestrator",
-                kind="AGENT",
-                name="orchestrator.planned",
-                detail=plan.model_dump(mode="json"),
-            )
+            self.harness.trace(run, actor="Application Runtime", kind="STATE", name="run.started")
             run.messages.append(Message(role="user", content=message))
             self._merge_requirement(run.requirement, message)
             if "按公司标准" in message or "按团队标准" in message:
                 self._apply_authorized_defaults(run.requirement)
-            response = await self._advance(run, scenario=run.scenario)
+            agent_context = await self._plan(run)
+            response = await self._advance(
+                run,
+                scenario=run.scenario,
+                agent_context=agent_context,
+            )
         except HarnessBudgetExceeded as exc:
             response = self._budget_stopped(run, exc)
         self.repository.save(run)
@@ -114,7 +149,7 @@ class ProcurementEngine:
         message: str,
         scenario: str | None = None,
     ) -> RunResponse:
-        run = self.repository.get(run_id)
+        run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
         self._assert_owner(run, tenant_id, user_id)
         if run.state not in {RunState.WAITING_USER, RunState.COLLECTING}:
             raise ValueError(f"Run cannot accept clarification in state {run.state}")
@@ -131,7 +166,12 @@ class ProcurementEngine:
             self._merge_requirement(run.requirement, message)
             if "按公司标准" in message or "按团队标准" in message:
                 self._apply_authorized_defaults(run.requirement)
-            response = await self._advance(run, scenario=run.scenario)
+            agent_context = await self._plan(run)
+            response = await self._advance(
+                run,
+                scenario=run.scenario,
+                agent_context=agent_context,
+            )
         except HarnessBudgetExceeded as exc:
             response = self._budget_stopped(run, exc)
         self.repository.save(run)
@@ -162,7 +202,7 @@ class ProcurementEngine:
         user_id: str,
         action_token: str,
     ) -> RunResponse:
-        run = self.repository.get(run_id)
+        run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
         self._assert_owner(run, tenant_id, user_id)
         if run.draft:
             return RunResponse(
@@ -172,6 +212,12 @@ class ProcurementEngine:
             raise ValueError("Run is not waiting for confirmation")
         try:
             self.harness.verify_action_token(action_token, run)
+            self.harness.assert_budget_available(
+                run,
+                BudgetResource.STATE_TRANSITIONS,
+                3,
+            )
+            self.harness.reserve_commit_tool_calls(run, 3)
             self.harness.transition(
                 run,
                 RunState.REVALIDATING,
@@ -184,6 +230,7 @@ class ProcurementEngine:
                 tool_name="revalidate_quote",
                 roles=employee.roles,
                 provider=candidate.offer.provider,
+                budget_pool=ToolBudgetPool.COMMIT,
                 operation=lambda: self.catalog.get_offer(
                     candidate.offer.provider,
                     candidate.offer.offer_id,
@@ -191,13 +238,16 @@ class ProcurementEngine:
                 ),
             )
         except HarnessBudgetExceeded as exc:
+            self._restore_waiting_confirmation(
+                run,
+                reason="confirmation budget was unavailable or exhausted safely",
+            )
             response = self._budget_stopped(run, exc)
             self.repository.save(run)
             return response
         except (ProviderError, ToolTimeoutError, CircuitOpenError) as exc:
-            self.harness.transition(
+            self._restore_waiting_confirmation(
                 run,
-                RunState.WAITING_CONFIRMATION,
                 reason="quote revalidation tool failed safely",
             )
             self.harness.trace(
@@ -216,9 +266,17 @@ class ProcurementEngine:
         refreshed_cost = self._calculate_cost(refreshed_offer, run.requirement)
         try:
             self.harness.begin_tool_call(
-                run, tool_name="evaluate_policy", roles=employee.roles, confirmed=False
+                run,
+                tool_name="evaluate_policy",
+                roles=employee.roles,
+                confirmed=False,
+                budget_pool=ToolBudgetPool.COMMIT,
             )
         except HarnessBudgetExceeded as exc:
+            self._restore_waiting_confirmation(
+                run,
+                reason="policy revalidation budget was exhausted safely",
+            )
             response = self._budget_stopped(run, exc)
             self.repository.save(run)
             return response
@@ -231,13 +289,28 @@ class ProcurementEngine:
             condition=refreshed_offer.variant.condition,
         )
         if refreshed.decision == PolicyDecision.DENY:
+            self._restore_waiting_confirmation(
+                run,
+                reason="policy revalidation denied the write safely",
+            )
+            self.repository.save(run)
             raise PermissionError("Policy revalidation denied draft creation")
         if run.requirement.unit_budget and (
             refreshed_offer.unit_price.amount > run.requirement.unit_budget.amount
         ):
+            self._restore_waiting_confirmation(
+                run,
+                reason="revalidated quote exceeded the confirmed budget safely",
+            )
+            self.repository.save(run)
             raise PermissionError("Revalidated offer exceeds the confirmed unit budget")
 
         if run.quote_snapshot is None:
+            self._restore_waiting_confirmation(
+                run,
+                reason="missing quote snapshot prevented the write safely",
+            )
+            self.repository.save(run)
             raise ValueError("Run is missing the quote snapshot required for confirmation")
         if refreshed_snapshot.fingerprint != run.quote_snapshot.fingerprint:
             changes = self._quote_changes(run.quote_snapshot, refreshed_snapshot)
@@ -269,13 +342,18 @@ class ProcurementEngine:
                     RunState.WAITING_CONFIRMATION,
                     reason="quote facts changed and require a new confirmation",
                 )
+                self.harness.release_commit_tool_calls(run)
             except HarnessBudgetExceeded as exc:
+                self._restore_waiting_confirmation(
+                    run,
+                    reason="quote-change recovery completed safely",
+                )
                 response = self._budget_stopped(run, exc)
                 self.repository.save(run)
                 return response
             self.harness.trace(
                 run,
-                actor="Procurement Orchestrator",
+                actor="Application Runtime",
                 kind="TOOL",
                 name="revalidate_quote",
                 detail={
@@ -286,6 +364,7 @@ class ProcurementEngine:
                 },
                 status="REQUIRES_CONFIRMATION",
             )
+            run.error = None
             self.repository.save(run)
             detail = "；".join(
                 f"{change.field}: {change.previous} → {change.current}" for change in changes
@@ -312,16 +391,12 @@ class ProcurementEngine:
         )
         run.revalidation_changes = []
         try:
-            self.harness.assert_budget_available(
-                run,
-                BudgetResource.STATE_TRANSITIONS,
-                2,
-            )
             self.harness.begin_tool_call(
                 run,
                 tool_name="create_requisition_draft",
                 roles=employee.roles,
                 confirmed=True,
+                budget_pool=ToolBudgetPool.COMMIT,
             )
             self.harness.transition(
                 run,
@@ -329,6 +404,10 @@ class ProcurementEngine:
                 reason="revalidation passed",
             )
         except HarnessBudgetExceeded as exc:
+            self._restore_waiting_confirmation(
+                run,
+                reason="draft creation budget was exhausted before the write",
+            )
             response = self._budget_stopped(run, exc)
             self.repository.save(run)
             return response
@@ -342,18 +421,19 @@ class ProcurementEngine:
             candidate=candidate,
             approval_route=refreshed.approval_route,
         )
-        self.harness.transition(
+        self.harness.recovery_transition(
             run,
             RunState.DRAFT_CREATED,
             reason="requisition draft created",
         )
         self.harness.trace(
             run,
-            actor="Procurement Orchestrator",
+            actor="Application Runtime",
             kind="TOOL",
             name="create_requisition_draft",
             detail={"risk": "BUSINESS_WRITE", "draft_id": run.draft.draft_id},
         )
+        run.error = None
         self.repository.save(run)
         return RunResponse(
             run=run,
@@ -361,17 +441,23 @@ class ProcurementEngine:
         )
 
     def get(self, run_id: str, *, tenant_id: str, user_id: str) -> ProcurementRun:
-        run = self.repository.get(run_id)
+        run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
         self._assert_owner(run, tenant_id, user_id)
         return run
 
-    async def _advance(self, run: ProcurementRun, *, scenario: str | None) -> RunResponse:
+    async def _advance(
+        self,
+        run: ProcurementRun,
+        *,
+        scenario: str | None,
+        agent_context: AgentRuntimeContext | None = None,
+    ) -> RunResponse:
         clarification = self._clarification(run.requirement, run.clarification_rounds)
         if not clarification.ready_for_sourcing:
             if run.clarification_rounds >= MAX_CLARIFICATION_ROUNDS:
                 self.harness.trace(
                     run,
-                    actor="Clarification Agent",
+                    actor="Requirement Validation Service",
                     kind="AGENT",
                     name="clarification.decision",
                     detail=clarification.model_dump(mode="json"),
@@ -387,7 +473,7 @@ class ProcurementEngine:
                 run.messages.append(Message(role="assistant", content=run.error))
                 self.harness.trace(
                     run,
-                    actor="Procurement Orchestrator",
+                    actor="Application Runtime",
                     kind="STATE",
                     name="clarification.stopped",
                     detail={
@@ -405,7 +491,7 @@ class ProcurementEngine:
             )
             self.harness.trace(
                 run,
-                actor="Clarification Agent",
+                actor="Requirement Validation Service",
                 kind="AGENT",
                 name="clarification.decision",
                 detail=clarification.model_dump(mode="json"),
@@ -421,15 +507,23 @@ class ProcurementEngine:
             )
         self.harness.trace(
             run,
-            actor="Clarification Agent",
+            actor="Requirement Validation Service",
             kind="AGENT",
             name="clarification.decision",
             detail=clarification.model_dump(mode="json"),
         )
-        return await self._source_and_recommend(run, scenario=scenario)
+        return await self._source_and_recommend(
+            run,
+            scenario=scenario,
+            agent_context=agent_context,
+        )
 
     async def _source_and_recommend(
-        self, run: ProcurementRun, *, scenario: str | None
+        self,
+        run: ProcurementRun,
+        *,
+        scenario: str | None,
+        agent_context: AgentRuntimeContext | None = None,
     ) -> RunResponse:
         self.harness.transition(
             run,
@@ -441,6 +535,7 @@ class ProcurementEngine:
         assert requirement.minimum_ram_gb is not None
         assert requirement.minimum_storage_gb is not None
         employee = self.enterprise.identity(run.tenant_id, run.user_id)
+        cached_results = agent_context.catalog_results if agent_context else {}
         tasks = {
             provider: asyncio.create_task(
                 self.harness.execute_tool(
@@ -448,6 +543,7 @@ class ProcurementEngine:
                     tool_name="search_catalog",
                     roles=employee.roles,
                     provider=provider,
+                    budget_pool=ToolBudgetPool.WORKFLOW_READ,
                     operation=lambda provider=provider: self.catalog.search(
                         provider,
                         minimum_ram_gb=requirement.minimum_ram_gb,
@@ -458,12 +554,18 @@ class ProcurementEngine:
                 )
             )
             for provider in PROVIDERS
+            if provider not in cached_results
         }
         offers: list[Offer] = []
         normalization_issues = []
         failed_providers: list[str] = []
-        provider_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-        for (provider, _), provider_result in zip(tasks.items(), provider_results, strict=True):
+        executed_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
+        provider_results = {
+            **cached_results,
+            **dict(zip(tasks, executed_results, strict=True)),
+        }
+        for provider in PROVIDERS:
+            provider_result = provider_results[provider]
             if not isinstance(provider_result, BaseException):
                 offers.extend(provider_result.offers)
                 normalization_issues.extend(provider_result.assessments)
@@ -477,7 +579,7 @@ class ProcurementEngine:
                 )
                 self.harness.trace(
                     run,
-                    actor="Sourcing & Comparison Agent",
+                    actor="Catalog Service",
                     kind="TOOL",
                     name="search_catalog",
                     detail={
@@ -487,6 +589,7 @@ class ProcurementEngine:
                         "conflict_vetoes": match_rejected,
                         "review_required": review_required,
                         "risk": "READ",
+                        "reused_agent_tool_result": provider in cached_results,
                     },
                 )
             elif isinstance(
@@ -496,7 +599,7 @@ class ProcurementEngine:
                 failed_providers.append(provider)
                 self.harness.trace(
                     run,
-                    actor="Sourcing & Comparison Agent",
+                    actor="Catalog Service",
                     kind="TOOL",
                     name="search_catalog",
                     detail={
@@ -522,7 +625,11 @@ class ProcurementEngine:
         candidates: list[Candidate] = []
         rejected = 0
         self.harness.begin_tool_call(
-            run, tool_name="evaluate_policy", roles=employee.roles, confirmed=False
+            run,
+            tool_name="evaluate_policy",
+            roles=employee.roles,
+            confirmed=False,
+            budget_pool=ToolBudgetPool.WORKFLOW_READ,
         )
         for offer in offers:
             cost = self._calculate_cost(offer, requirement)
@@ -588,6 +695,59 @@ class ProcurementEngine:
         lowest = min(candidates, key=lambda item: item.cost.unconditional_total.amount)
         fastest = min(candidates, key=lambda item: (item.offer.delivery_days, -item.score))
         best = max(candidates, key=lambda item: item.score)
+        selection_source = "deterministic_score"
+        selection_rationale = "按固定成本、交付、供应商状态和保修权重选择"
+        if agent_context and agent_context.proposed_candidates:
+            candidate_by_key = {
+                (candidate.offer.provider, candidate.offer.offer_id): candidate
+                for candidate in candidates
+            }
+            for proposal in agent_context.proposed_candidates:
+                proposal_key = (proposal.provider, proposal.offer_id)
+                proposed = candidate_by_key.get(proposal_key)
+                proposal_evidence = set(proposal.evidence_refs)
+                catalog_evidence = (
+                    {
+                        *proposed.offer.match_decision.evidence_refs,
+                        proposed.offer.evidence.evidence_id,
+                    }
+                    if proposed
+                    else set()
+                )
+                evidence_is_valid = bool(
+                    proposed
+                    and proposal_key in agent_context.offers
+                    and proposed.offer.evidence.evidence_id in proposal_evidence
+                    and proposal_evidence.issubset(catalog_evidence)
+                )
+                if proposed and evidence_is_valid:
+                    best = proposed
+                    selection_source = "agent_validated"
+                    selection_rationale = agent_context.decision_rationale
+                    self.harness.trace(
+                        run,
+                        actor="Evidence Validation Service",
+                        kind="SERVICE",
+                        name="agent.recommendation_validated",
+                        detail={
+                            "provider": proposal.provider,
+                            "offer_id": proposal.offer_id,
+                            "evidence_refs": proposal.evidence_refs,
+                        },
+                    )
+                    break
+                self.harness.trace(
+                    run,
+                    actor="Evidence Validation Service",
+                    kind="SERVICE",
+                    name="agent.recommendation_rejected",
+                    detail={
+                        "provider": proposal.provider,
+                        "offer_id": proposal.offer_id,
+                        "reason": "candidate or required evidence did not pass server validation",
+                    },
+                    status="REJECTED",
+                )
         degraded = (
             f"；{', '.join(failed_providers)} 暂不可用，结果为部分成功" if failed_providers else ""
         )
@@ -613,12 +773,14 @@ class ProcurementEngine:
                 for assessment in normalization_issues
             ),
             normalization_issues=normalization_issues,
+            selection_source=selection_source,
+            selection_rationale=selection_rationale,
             summary=summary,
         )
         self.harness.trace(
             run,
-            actor="Policy Reviewer Agent",
-            kind="AGENT",
+            actor="Policy Rule Service",
+            kind="SERVICE",
             name="policy.reviewed",
             detail={
                 "candidates": len(candidates),
@@ -630,10 +792,14 @@ class ProcurementEngine:
         )
         self.harness.trace(
             run,
-            actor="Procurement Orchestrator",
-            kind="AGENT",
+            actor="Recommendation Service",
+            kind="SERVICE",
             name="recommendation.composed",
-            detail={"best_offer": best.offer.offer_id, "evidence_refs": best.evidence_refs},
+            detail={
+                "best_offer": best.offer.offer_id,
+                "evidence_refs": best.evidence_refs,
+                "selection_source": selection_source,
+            },
         )
         self.harness.transition(
             run,
@@ -646,6 +812,34 @@ class ProcurementEngine:
         run.messages.append(Message(role="assistant", content=summary))
         return RunResponse(run=run, assistant_message=summary)
 
+    async def _plan(self, run: ProcurementRun) -> AgentRuntimeContext:
+        employee = self.enterprise.identity(run.tenant_id, run.user_id)
+        context = AgentRuntimeContext(
+            run=run,
+            catalog=self.catalog,
+            enterprise=self.enterprise,
+            harness=self.harness,
+            roles=employee.roles,
+            context_assembler=self.context_assembler,
+        )
+        plan = await self.harness.execute_agent_turn(
+            run,
+            lambda: self.planner.plan(run.messages, context=context),
+        )
+        context.proposed_candidates = plan.candidate_proposals
+        context.decision_rationale = plan.rationale
+        self.harness.trace(
+            run,
+            actor="Application Runtime",
+            kind="SERVICE",
+            name="runtime.plan_applied",
+            detail={
+                **plan.model_dump(mode="json"),
+                "message_count": len(run.messages),
+            },
+        )
+        return context
+
     def _budget_stopped(self, run: ProcurementRun, exc: HarnessBudgetExceeded) -> RunResponse:
         message = (
             f"执行已停止：{exc.resource} 预算已用尽（{exc.used}/{exc.limit}）。"
@@ -654,6 +848,16 @@ class ProcurementEngine:
         run.error = str(exc)
         run.messages.append(Message(role="assistant", content=message))
         return RunResponse(run=run, assistant_message=message)
+
+    def _restore_waiting_confirmation(self, run: ProcurementRun, *, reason: str) -> None:
+        """Release an unused commit reservation and preserve a retryable safe state."""
+        self.harness.release_commit_tool_calls(run)
+        if run.state == RunState.REVALIDATING:
+            self.harness.recovery_transition(
+                run,
+                RunState.WAITING_CONFIRMATION,
+                reason=reason,
+            )
 
     @staticmethod
     def _merge_requirement(requirement: ProcurementRequirement, text: str) -> None:
@@ -742,30 +946,7 @@ class ProcurementEngine:
 
     @staticmethod
     def _calculate_cost(offer: Offer, requirement: ProcurementRequirement) -> CostBreakdown:
-        assert requirement.quantity is not None
-        subtotal = offer.unit_price.amount * requirement.quantity
-        shipping = offer.shipping.amount
-        if requirement.budget_tax_included:
-            tax = (subtotal * offer.tax_rate / (Decimal("1") + offer.tax_rate)).quantize(
-                Decimal("0.01")
-            )
-            unconditional = subtotal + shipping
-        else:
-            tax = (subtotal * offer.tax_rate).quantize(Decimal("0.01"))
-            unconditional = subtotal + tax + shipping
-        conditional_total = None
-        if offer.conditional_discount.amount > 0:
-            conditional_total = Money(
-                amount=unconditional - offer.conditional_discount.amount * requirement.quantity,
-                currency=offer.unit_price.currency,
-            )
-        return CostBreakdown(
-            subtotal=Money(amount=subtotal, currency=offer.unit_price.currency),
-            tax=Money(amount=tax, currency=offer.unit_price.currency),
-            shipping=offer.shipping,
-            unconditional_total=Money(amount=unconditional, currency=offer.unit_price.currency),
-            conditional_total=conditional_total,
-        )
+        return calculate_landed_cost(offer, requirement)
 
     @staticmethod
     def _score(offer: Offer, cost: CostBreakdown, decision: PolicyDecision) -> float:

@@ -55,7 +55,8 @@ REVALIDATING -> DRAFT_CREATING -> DRAFT_CREATED
 
 - 最多 20 次状态变化；
 - 最多 12 个 Agent 回合；
-- 最多 12 次逻辑工具调用；
+- 最多 21 次逻辑工具调用，并分别限制 12 次 Agent 只读、6 次 Workflow 只读；
+- 每次确认最多预留 3 次 commit 调用，按实际调用核销，失败或报价变化时释放余额；
 - 最多 12 次 Provider 请求；
 - 最多 4 次重试；
 - 最多 25 秒在线执行时间；
@@ -99,12 +100,16 @@ REVALIDATING -> DRAFT_CREATING -> DRAFT_CREATED
 - 工具超时达到阈值后打开熔断器，下一次调用不会执行；
 - 四个 Provider 任务并发时，实际同时执行数不会超过配置值；
 - Run 经 JSON 保存和重新加载后，状态历史与预算用量不丢失。
+- 与 DeepSeek 当前形状一致的 9 次 Agent 读取后，Workflow 仍可补齐一次制度检查，并预留 3 次确认调用完成草稿；
+- 确认前状态或 commit 额度不足时不进入 `REVALIDATING`，执行中安全失败会回到 `WAITING_CONFIRMATION`。
 
 ## 当前边界
 
-- 当前 OpenAI Agent 只是规划器，尚未回传真实 token 和费用；Harness 已提供额度与记账入口，但不能把未观测到的数据写成真实用量。
+- OpenAI Runner 的 input/output token 已接入记账，并已有 DeepSeek 3 次 live 小样本；Run 内的费用用量仍保持为零，成本只在报告阶段按版本化公开价格估算，因此当前成本上限尚不能作为运行时硬门禁。
+- 阶段预算、确认前预留和安全恢复已经实现；更新后的 runner 以 `DRAFT_CREATED` 为成功条件，但尚未重跑 DeepSeek，因此历史 3/3 结果仍只证明到达 `WAITING_CONFIRMATION`。
+- commit reservation 当前随 Run 快照保存，尚未实现跨进程租约、过期回收与未知写结果的 `RECONCILING` 状态。
 - 当前熔断器和并发信号量是单进程内存状态，多实例共享熔断需要 Redis 或网关支持。
-- JSON Repository 会保存状态历史，但还没有数据库乐观锁、独立 checkpoint、pause/resume/cancel；这些属于下一纵向切片。
+- PostgreSQL Repository 已用 `lock_version` 提供数据库乐观锁；默认 JSON 模式不具备跨进程保护。独立 checkpoint、pause/resume/cancel 仍延后到 M5。
 - 通用超时/重试包装器已经用于异步 Provider 报价读取；同步企业规则和本地草稿创建仍是确定性进程内调用，不宣称已经具备外部服务级故障恢复。
 - 目前没有完整 cassette，故障可通过 Fixture 场景复现，但还不能回放真实模型和外部工具轨迹。
 

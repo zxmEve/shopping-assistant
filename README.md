@@ -1,6 +1,6 @@
 # ProcurePilot：企业采购决策与审批 Agent
 
-> 当前状态：Phase 1 核心闭环已实现，完整 P0 正在按需求追踪矩阵补齐。默认使用可复现 fixture 模式；真实 OpenAI、长期记忆、自进化和生产工作流尚未完成。
+> 当前状态：运行时已收敛为 Requirement Agent 和 Sourcing Agent 两个模型角色。M2.1 已把授权长期记忆接入不同 Agent 上下文，M2.2 已加入受控 Key/Category/Tag、结构化值、有效期、Consent 和 TEAM 写权限。当前 96 个后端测试通过，DeepSeek 双 Agent 12/12 smoke 已通过，×3 稳定性矩阵待运行。
 
 ProcurePilot 是一个面向企业员工、采购专员和审批人的 AI 采购助手。它将自然语言采购需求转化为结构化申请，主动补齐关键约束，并行查询多个合规来源，完成同款归一、到手成本计算、预算与制度校验、供应商风险检查，最终在人工确认后生成采购申请草稿。
 
@@ -19,6 +19,8 @@ ProcurePilot 是一个面向企业员工、采购专员和审批人的 AI 采购
 - [架构决策记录](docs/adr/)
 - [设计学习导读](docs/09-learning-guide.md)
 - [里程碑与交付计划](docs/10-delivery-plan.md)
+- [下一步实施规划与技术方案](docs/11-next-step-plan-and-technical-design.md)
+- [记忆、上下文与知识检索模块技术设计](docs/12-memory-context-technical-design.md)
 
 ## 快速开始
 
@@ -32,15 +34,32 @@ make dev
 
 打开 `http://127.0.0.1:5173`。`make dev` 会同时启动 FastAPI 与 Vite；也可以使用 `docker compose up --build`。
 
-默认 `PROCURE_AGENT_MODE=deterministic`，用于离线演示和 CI。启用真实 OpenAI Agents SDK：
+默认 `PROCURE_AGENT_MODE=deterministic`，用于离线演示和 CI。
+
+双 Agent fixture 拓扑可用下面的配置离线运行：
 
 ```bash
-cp .env.example .env
-# 在 .env 中设置 PROCURE_AGENT_MODE=openai 和 PROCURE_OPENAI_API_KEY
+PROCURE_AGENT_MODE=deterministic \
+PROCURE_AGENT_TOPOLOGY=two_agent \
 make dev
 ```
 
-当前自动评测基线：41/41 Python 测试和 26/26 deterministic 场景通过，veto failures 为 0。商品 hard-case grader 的 Product/Variant match precision 均为 100%，hard false merge 为 0；状态迁移、预算拦截和重试/熔断场景均通过。报告位于 `backend/evals/reports/latest.html` 和 `latest.json`。这些结果只代表确定性 fixture，不代表真实商城、真实模型或生产采购效果。
+它会执行与真实模型相同的 Runtime、权限和工具链，但 Agent 决策来自 deterministic fixture adapter，不产生模型费用。
+
+启用真实 OpenAI Agents SDK 及其兼容 Provider：
+
+```bash
+# OpenAI：设置 PROCURE_AGENT_MODE=openai 和 PROCURE_OPENAI_API_KEY
+# 双 Agent：设置 PROCURE_AGENT_TOPOLOGY=two_agent
+# DeepSeek：再设置 PROCURE_MODEL_PROVIDER=deepseek、
+# PROCURE_OPENAI_BASE_URL=https://api.deepseek.com 和对应模型名；可分别配置
+# PROCURE_REQUIREMENT_MODEL、PROCURE_SOURCING_MODEL
+make dev
+```
+
+真实模型评测与 deterministic 报告分开保存。配置 Key 后，`make live-eval` 运行当前双 Agent 拓扑的 3 次完整闭环；`make live-eval-s3` 运行 12-case × 3-run smoke。报告写入 `backend/evals/reports/live/`；没有 Key 时命令会明确停止，不会生成伪造的 live 基线。真实评测会产生费用，应在确认预算后手动执行。
+
+当前双 Agent 代码基线为 96/96 后端测试通过，确定性评测为 39/39。双 Agent DeepSeek 12-case × 1 smoke 已 12/12 通过；此前五 Agent 和 direct-tools 报告只保留为历史记录，不能作为新拓扑发布证据。发布前仍需完成 12-case × 3 稳定性矩阵。
 
 Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixture-session-cn-employee-001`。它用于证明客户端不能直接指定 tenant、用户或成本中心，不代表生产 SSO。
 
@@ -86,16 +105,21 @@ Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixtur
 - Fixture 比价：三个逻辑 provider 返回不一致的原始表达，经确定性管线归一为 Product、Variant、Offer；关键冲突由服务端 veto，低置信度报价不进入排名，金额使用 Decimal。
 - 企业决策：预算、采购制度、供应商状态和审批路径由确定性领域服务判断。
 - 最小 Harness：合法状态迁移与连续版本、按 Run 保存的执行额度/用量、Provider 超时/有限重试/独立熔断/并发隔离、版本化 Tool Registry、HITL、签名 Action Token 和幂等草稿。
-- 多 Agent 拓扑：OpenAI Agents SDK Manager + specialists-as-tools；默认离线模式使用确定性 Planner。
+- Agent 拓扑：Provider 无关的 Runtime 只执行 Requirement Agent 或 Sourcing Agent；两者使用独立 SDK 实例、输入投影和静态工具白名单。Application Runtime 不是模型，Policy/Verification 是确定性服务。
+- Agent 工具闭环：完整多轮消息进入 Planner；模型不能传入价格、预算或虚构 Offer，已查询目录结果会被 Engine 复用；结构化候选只有通过服务端证据检查后才能改变综合推荐。独立 live runner 已记录真实模型的轨迹、token、延迟和估算费用。
+- PostgreSQL 数据库：SQLAlchemy Repository 与 Alembic migration 已接入；Run 使用 JSONB 保存完整快照，消息和 Trace 同时写入可查询表；租户条件、乐观锁和草稿唯一键已在真实 PostgreSQL 17 上验证。
+- 长期记忆第一片：Profile/Team/Episodic/Semantic 四种类型已落库；创建必须显式同意，个人/团队读取边界和创建者写权限由 Repository 强制，支持版本化修改、软删除和全生命周期审计。
+- M2.1 上下文装配：版本化 ContextPolicy 控制两个 Agent 各自可见的 Key、Scope、消息数和 token；同 Key 冲突只保留一个结果，本次明确输入优先；Context Trace 记录选择/排除元数据但不复制私人正文。
+- M2.2 结构化记忆：Registry 定义允许保存的 Key、Value Schema、品类和 Tag；歧义品类、未知 Tag、错误值和越权 TEAM 写入会被拒绝；Consent、请求幂等和版本替代在数据库事务中完成。
 - 写前重校验：Token 绑定需求版本、动作和报价快照；价格变化时展示 Diff 并要求重新确认。
 - 可重复评测：固定 seed、clock 和故障场景，生成 JSON/HTML 基线报告。
 
 ## 规划中的能力
 
+- 在受控预算下执行并归档双 Agent DeepSeek 12-case × 3 稳定性矩阵；
+- 记忆候选自动提取/确认，以及 pgvector + FTS 制度 RAG 混合检索；
 - 更大别名库、hybrid retrieval、pairwise matcher 与真实 Provider 标注集上的召回/置信度校准；
-- 真实模型 token/cost 回传、跨进程熔断、checkpoint 和 cassette replay；
-- PostgreSQL/Temporal 与可恢复执行；
-- Profile/Team/Episodic/Semantic 长期记忆；
+- 真实模型扩大样本、费用账单校对、跨进程熔断、checkpoint 和 cassette replay；
 - 60/180 场景分层评测、真实模型成本与延迟基线；
 - 经过 holdout、人工审批、canary 和 rollback 的受控自进化。
 

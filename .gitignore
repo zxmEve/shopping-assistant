@@ -1,4 +1,7 @@
 .env
+.env.example_副本
+.env.local
+.env.*.local
 .data/
 backend/.venv/
 backend/.pytest_cache/
@@ -8,4 +11,3 @@ frontend/node_modules/
 frontend/dist/
 frontend/*.tsbuildinfo
 .DS_Store
-

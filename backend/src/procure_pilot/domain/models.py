@@ -9,6 +9,7 @@ from uuid import uuid4
 from pydantic import (
     BaseModel,
     Field,
+    PrivateAttr,
     computed_field,
     field_serializer,
     field_validator,
@@ -35,13 +36,25 @@ class RunState(StrEnum):
 class BudgetResource(StrEnum):
     STATE_TRANSITIONS = "state_transitions"
     AGENT_TURNS = "agent_turns"
+    ORCHESTRATOR_REQUESTS = "orchestrator_requests"
+    SPECIALIST_REQUESTS = "specialist_requests"
+    STAGE_MODEL_REQUESTS = "stage_model_requests"
     TOOL_CALLS = "tool_calls"
+    AGENT_READ_TOOL_CALLS = "agent_read_tool_calls"
+    WORKFLOW_READ_TOOL_CALLS = "workflow_read_tool_calls"
+    COMMIT_TOOL_CALLS = "commit_tool_calls"
     PROVIDER_CALLS = "provider_calls"
     RETRIES = "retries"
     INPUT_TOKENS = "input_tokens"
     OUTPUT_TOKENS = "output_tokens"
     COST_MICRO_USD = "cost_micro_usd"
     WALL_TIME_MS = "wall_time_ms"
+
+
+class ToolBudgetPool(StrEnum):
+    AGENT_READ = "agent_read"
+    WORKFLOW_READ = "workflow_read"
+    COMMIT = "commit"
 
 
 class RiskLevel(StrEnum):
@@ -262,6 +275,8 @@ class Recommendation(BaseModel):
     match_rejected_count: int = 0
     review_required_count: int = 0
     normalization_issues: list[OfferMatchAssessment] = Field(default_factory=list)
+    selection_source: str = "deterministic_score"
+    selection_rationale: str = ""
     summary: str
 
 
@@ -311,7 +326,13 @@ class StateTransitionEvent(BaseModel):
 class ExecutionBudget(BaseModel):
     max_state_transitions: int = Field(default=20, gt=0)
     max_agent_turns: int = Field(default=12, gt=0)
-    max_tool_calls: int = Field(default=12, gt=0)
+    max_orchestrator_requests: int = Field(default=2, gt=0)
+    max_specialist_requests: int = Field(default=8, gt=0)
+    max_stage_model_requests: int = Field(default=10, gt=0)
+    max_tool_calls: int = Field(default=21, gt=0)
+    max_agent_read_tool_calls: int = Field(default=12, gt=0)
+    max_workflow_read_tool_calls: int = Field(default=6, gt=0)
+    max_commit_tool_calls: int = Field(default=3, gt=0)
     max_provider_calls: int = Field(default=12, gt=0)
     max_retries: int = Field(default=4, ge=0)
     max_input_tokens: int = Field(default=30_000, gt=0)
@@ -324,7 +345,14 @@ class ExecutionBudget(BaseModel):
 class ExecutionUsage(BaseModel):
     state_transitions: int = Field(default=0, ge=0)
     agent_turns: int = Field(default=0, ge=0)
+    orchestrator_requests: int = Field(default=0, ge=0)
+    specialist_requests: int = Field(default=0, ge=0)
+    stage_model_requests: int = Field(default=0, ge=0)
     tool_calls: int = Field(default=0, ge=0)
+    agent_read_tool_calls: int = Field(default=0, ge=0)
+    workflow_read_tool_calls: int = Field(default=0, ge=0)
+    commit_tool_calls: int = Field(default=0, ge=0)
+    reserved_commit_tool_calls: int = Field(default=0, ge=0)
     provider_calls: int = Field(default=0, ge=0)
     retries: int = Field(default=0, ge=0)
     input_tokens: int = Field(default=0, ge=0)
@@ -350,6 +378,8 @@ class ProcurementDraft(BaseModel):
 
 
 class ProcurementRun(BaseModel):
+    _persistence_version: int | None = PrivateAttr(default=None)
+
     run_id: str = Field(default_factory=lambda: f"run_{uuid4().hex[:12]}")
     tenant_id: str
     user_id: str

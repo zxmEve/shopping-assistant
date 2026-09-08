@@ -13,29 +13,29 @@
 
 ## 2. 第一阶段选择的功能
 
-### 2.1 Procurement Orchestrator
+### 2.1 Application Runtime（不是 Agent）
 
-唯一面向用户的 Manager Agent，维护当前采购目标和流程状态，决定追问、调用 specialist、继续核验或等待确认。所有 specialist 以 agent-as-tool 方式返回 Pydantic 结构化结果，不直接接管用户会话。
+固定代码维护采购状态，根据必填字段是否完整，在两个 Agent 之间选择下一步，并调用成本、预算、政策和证据服务。
 
-选择原因：这是多 Agent 项目的主干，能够展示 orchestration、上下文管理、路由和结构化协作，而不会因为 handoff 造成责任和权限漂移。
+选择原因：当前路由条件可以完全枚举。用代码路由更便宜、稳定、可测试，模型不可用时也能安全回退。
 
-### 2.2 主动追问 Agent
+### 2.2 Requirement Agent
 
 从自然语言中抽取数量、预算、税口径、交付地、交期和最低配置，按信息增益一次提出 1～3 个关键问题；支持“按团队标准决定”和停止追问。
 
 选择原因：主动追问是普通聊天机器人与任务型 Agent 最明显的差异，也是企业采购中避免错误检索和错误审批的第一道防线。
 
-### 2.3 Sourcing & Comparison Agent
+### 2.3 Sourcing Agent
 
-并行调用三个逻辑 provider，完成候选召回、Product/Variant/Offer 分层、同款匹配、冲突字段输出和候选比较。金额、税费、运费、优惠与批量总价由 `Decimal` 领域工具计算。
+调用三个逻辑 provider，在服务端已经规范化和验证的报价中比较候选，只返回真实 provider/offer ID 和目录证据。Product/Variant/Offer 分层、冲突否决，以及金额、税费、运费、优惠与批量总价均由确定性领域服务处理。
 
 选择原因：它覆盖 Tool Calling、并行 I/O、实体归一、证据 grounding 和 LLM/确定性代码分工，是项目最有辨识度的 Agent 能力。
 
-### 2.4 Policy Reviewer Agent
+### 2.4 Budget & Policy Service（不是 Agent）
 
-调用预算、供应商和制度工具，将确定性规则结果转化为用户可理解的说明；Agent 不能覆盖 `ALLOW/DENY/ALLOW_WITH_APPROVAL` 结果。
+读取预算、供应商和版本化制度，直接产出 `ALLOW/DENY/ALLOW_WITH_APPROVAL` 及审批路径。自然语言说明可以由展示层生成，但模型不能覆盖规则结果。
 
-选择原因：企业采购的价值不只是低价，而是“在预算和制度内做决策”。同时能展示 RAG 解释与 Policy-as-Code 的边界。
+选择原因：企业采购的价值不只是低价，而是“在预算和制度内做决策”；这些结论必须可重复和可审计，所以属于服务而不是第三个 Agent。
 
 ### 2.5 有证据的推荐
 
@@ -63,9 +63,9 @@
 
 选择原因：这些能力直接决定 Agent 是否可控、可查和可评测。Temporal、Kafka、复杂熔断和分布式调度先不引入。
 
-### 2.8 26 个核心评测场景
+### 2.8 39 个核心评测场景
 
-第一阶段不追求 60/180 个数量；初始 20 个高密度场景完成后，商品归一和 Harness 分别增加 3 个确定性场景：
+第一阶段不追求 60/180 个数量；初始 20 个高密度场景完成后，又增加 3 个商品归一场景、3 个 Harness 场景、7 个 Agent 场景、3 个数据库场景和 3 个长期记忆场景：
 
 | 类别 | 数量 | 必测内容 |
 |---|---:|---|
@@ -76,6 +76,9 @@
 | 故障与安全 | 3 | provider 429、部分成功、商品描述间接注入 |
 | 商品匹配专项 | 3 | Product/Variant precision、hard false merge/conflict veto、低置信度复核 |
 | Harness Runtime | 3 | 合法状态路径、预算前置拦截、有限重试与独立熔断 |
+| Agent Runtime | 7 | 严格只读工具面、可信 Offer 链、多轮消息上下文、结构化选品、错误候选 veto、合法轨迹、重复调用识别 |
+| Database Runtime | 3 | 完整回写、tenant/user 隔离、旧版本写入冲突 |
+| Memory Runtime | 3 | 个人/团队读取边界、创建者写权限、版本化修改/删除和审计 |
 
 选择原因：先验证场景 Schema、grader 和回放是否可靠，再扩数据；低质量的大评测集会掩盖系统问题。
 
@@ -87,7 +90,7 @@
 - 企业：2 个 tenant、6 个员工、3 个成本中心、8 个供应商、8 条制度规则、3 条审批路由；
 - 实现：一个进程内 `FixtureCatalogAdapter` + 一个 `FixtureEnterpriseGateway`；
 - 故障：通过 scenario manifest 切换，不建设独立故障平台；
-- 存储：第一阶段使用原子 JSON Repository 保存 run、草稿和 trace，静态 fixture 使用 JSON；Repository Port 保留，PostgreSQL adapter 延后到 Phase 2；
+- 存储：默认 fixture 使用原子 JSON Repository；同一 Repository Port 已接入 PostgreSQL/SQLAlchemy adapter，可通过配置切换；
 - UI：只做采购对话、候选比较、确认草稿和 trace 时间线四个页面/区域。
 
 不建设模拟商城后台、供应商后台、ERP UI、复杂商品管理、爬虫、大规模搜索集群或独立微服务。
@@ -107,7 +110,7 @@
 
 ## 5. 阶段完成指标
 
-Phase 1 已完成核心闭环的首轮实现和确定性评测，但不等同完整 P0 已验收。当前真实结果以 `backend/evals/reports/latest.json` 为准，逐条需求状态以 `08-requirements-traceability.md` 为准；下面的门槛继续作为回归标准。真实 OpenAI 模式尚未配置 API Key，因此当前分数只代表 deterministic fixture 基线。
+Phase 1 已完成核心闭环的首轮实现和确定性评测，但不等同完整 P0 已验收。当前真实结果以 `backend/evals/reports/latest.json` 为准，逐条需求状态以 `08-requirements-traceability.md` 为准；下面的门槛继续作为回归标准。DeepSeek live 小样本独立报告，不能和 deterministic fixture 分数混算。
 
 ### 5.1 一票否决指标
 
@@ -119,7 +122,7 @@ Phase 1 已完成核心闭环的首轮实现和确定性评测，但不等同完
 | 金额 golden exact match | 100% |
 | 价格/规格/预算/制度事实 evidence coverage | 100% |
 | 商品描述间接 prompt injection 导致策略/工具越权 | 0 次 |
-| 26 个场景 deterministic replay | 100% 可复现 |
+| 39 个场景 deterministic replay | 100% 可复现 |
 
 任何一项失败，第一阶段不得标记完成。
 
@@ -127,7 +130,7 @@ Phase 1 已完成核心闭环的首轮实现和确定性评测，但不等同完
 
 | 指标 | 初始门槛 |
 |---|---:|
-| 26 个场景端到端任务成功率 | >= 85%（至少 23/26） |
+| 39 个场景端到端任务成功率 | >= 85%（至少 34/39） |
 | 必要追问字段 Recall | >= 95% |
 | 不必要问题率 | <= 10% |
 | 最大连续追问轮数 | <= 3 |
@@ -158,7 +161,7 @@ Phase 1 已完成核心闭环的首轮实现和确定性评测，但不等同完
 
 1. 一键启动的 fixture Demo；
 2. 一条正常采购和一条攻击/故障演示脚本；
-3. 26 个版本化场景、golden state、grader 和确定性结果投影；完整 cassette 仍按追踪矩阵补齐；
+3. 39 个版本化场景、golden state、grader 和确定性结果投影；完整 cassette 仍按追踪矩阵补齐；
 4. 可查看的 Agent/tool/state/evidence trace；
 5. 自动生成的 HTML/JSON 评测报告；
 6. 架构说明、已知限制和失败案例复盘；

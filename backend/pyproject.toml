@@ -4,11 +4,14 @@ version = "0.1.0"
 description = "Evidence-grounded enterprise procurement agent demo"
 requires-python = ">=3.12,<3.14"
 dependencies = [
+  "alembic>=1.14.0,<2",
   "fastapi>=0.115.0,<1",
   "httpx>=0.28.0,<1",
   "openai-agents>=0.7.0,<1",
+  "psycopg[binary]>=3.2.0,<4",
   "pydantic>=2.10.0,<3",
   "pydantic-settings>=2.7.0,<3",
+  "sqlalchemy>=2.0.0,<3",
   "pyyaml>=6.0.2,<7",
   "uvicorn[standard]>=0.34.0,<1",
 ]
@@ -23,6 +26,7 @@ dev = [
 [project.scripts]
 procure-pilot = "procure_pilot.api.app:run"
 procure-eval = "procure_pilot.evals.runner:main"
+procure-live-eval = "procure_pilot.evals.live_runner:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]

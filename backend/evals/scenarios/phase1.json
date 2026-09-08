@@ -24,5 +24,18 @@
   {"case_id":"harness-001","category":"harness_runtime","description":"正常闭环只能沿合法状态迁移且版本连续递增","expected":"VERSIONED_LEGAL_STATE_PATH","requirement_ids":["OPS-01","OPS-04"]},
   {"case_id":"harness-002","category":"harness_runtime","description":"状态迁移预算耗尽时在动作前停止并保留当前状态","expected":"BUDGET_STOPS_BEFORE_ACTION","requirement_ids":["OPS-02"]},
   {"case_id":"harness-003","category":"harness_runtime","description":"单来源429执行有限重试并打开独立熔断器且保留其他来源结果","expected":"RETRY_CIRCUIT_AND_PARTIAL_SUCCESS","requirement_ids":["SRC-04","OPS-03"]},
+  {"case_id":"agent-001","category":"agent_runtime","description":"Agents SDK只暴露严格只读采购工具且不存在审批下单支付能力","expected":"STRICT_READ_ONLY_AGENT_TOOL_SURFACE","requirement_ids":["IAM-03","OPS-04"]},
+  {"case_id":"agent-002","category":"agent_runtime","description":"Agent目录工具返回可信报价且模型虚构offer id不能进入成本与制度工具","expected":"GROUNDED_OFFER_CHAIN","requirement_ids":["SRC-02","COST-01","GOV-03"]},
+  {"case_id":"agent-003","category":"agent_runtime","description":"每轮规划接收当前Run的完整用户与助手消息历史","expected":"FULL_MULTI_TURN_CONTEXT","requirement_ids":["REQ-02","OPS-02"]},
+  {"case_id":"agent-004","category":"agent_runtime","description":"Agent提交的候选必须带目录、预算和制度证据，服务端验证后才参与最终推荐","expected":"EVIDENCE_BACKED_AGENT_RECOMMENDATION","requirement_ids":["REC-01","REC-02","GOV-03"]},
+  {"case_id":"agent-005","category":"agent_runtime","description":"Agent虚构候选或证据时服务端拒绝并安全回退到确定性排序","expected":"INVALID_AGENT_CANDIDATE_VETO","requirement_ids":["REC-02","OPS-04"]},
+  {"case_id":"agent-006","category":"agent_runtime","description":"有证据推荐轨迹包含必需工具、合法参数和明确等待人工确认的停止条件","expected":"VALID_AGENT_TRAJECTORY","requirement_ids":["OPS-02","OPS-04","HITL-01"]},
+  {"case_id":"agent-007","category":"agent_runtime","description":"轨迹评分器能识别同一来源和参数的重复工具调用","expected":"DUPLICATE_TOOL_CALL_DETECTED","requirement_ids":["OPS-02","OPS-04"]},
+  {"case_id":"database-001","category":"database_runtime","description":"SQL Repository完整保存Run、Message、Trace和未提交草稿并可按租户恢复","expected":"DATABASE_FULL_RUN_ROUND_TRIP","requirement_ids":["OPS-01","OPS-04","HITL-05"]},
+  {"case_id":"database-002","category":"database_runtime","description":"跨租户Run ID和不存在Run ID返回不可区分的拒绝结果","expected":"TENANT_SCOPED_LOOKUP","requirement_ids":["IAM-02"]},
+  {"case_id":"database-003","category":"database_runtime","description":"基于lock_version的条件更新拒绝陈旧并发写入","expected":"OPTIMISTIC_LOCK_REJECTS_STALE_WRITE","requirement_ids":["HITL-04","OPS-01"]},
+  {"case_id":"memory-001","category":"memory_runtime","description":"个人长期记忆只对同租户本人可见","expected":"PERSONAL_MEMORY_TENANT_OWNER_SCOPE","requirement_ids":[],"acceptance_refs":["M4-MEMORY-PRIVACY"]},
+  {"case_id":"memory-002","category":"memory_runtime","description":"团队记忆对同团队可见但只有创建者可修改","expected":"TEAM_MEMORY_READ_OWNER_WRITE","requirement_ids":[],"acceptance_refs":["M4-MEMORY-AUTHORIZATION"]},
+  {"case_id":"memory-003","category":"memory_runtime","description":"长期记忆可修改删除且全生命周期可审计","expected":"MEMORY_EDIT_DELETE_AUDIT","requirement_ids":[],"acceptance_refs":["M4-MEMORY-LIFECYCLE"]},
   {"case_id":"replay-001","category":"fault_safety","description":"同输入确定性回放","expected":"ZERO_DIFF","requirement_ids":["OPS-05"]}
 ]

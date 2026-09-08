@@ -5,7 +5,10 @@ RUN pip install --no-cache-dir uv==0.6.10
 COPY pyproject.toml uv.lock ./
 COPY src ./src
 COPY fixtures ./fixtures
+COPY config ./config
 COPY evals ./evals
+COPY alembic.ini ./alembic.ini
+COPY migrations ./migrations
 RUN uv sync --frozen --no-dev
 
 EXPOSE 8000

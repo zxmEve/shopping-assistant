@@ -275,7 +275,7 @@ async def test_provider_bulkhead_caps_parallel_operations():
 
 
 @pytest.mark.asyncio
-async def test_draft_is_not_created_when_two_final_state_transitions_do_not_fit():
+async def test_confirmation_stays_retryable_when_all_final_state_transitions_do_not_fit():
     engine = make_engine()
     response = await engine.start(
         tenant_id="demo_cn",
@@ -293,6 +293,35 @@ async def test_draft_is_not_created_when_two_final_state_transitions_do_not_fit(
         action_token=response.run.action_token,
     )
 
-    assert stopped.run.state == RunState.REVALIDATING
+    assert stopped.run.state == RunState.WAITING_CONFIRMATION
     assert stopped.run.draft is None
+    assert stopped.run.execution_usage.commit_tool_calls == 0
+    assert stopped.run.execution_usage.reserved_commit_tool_calls == 0
+    assert all(event.to_state != RunState.REVALIDATING for event in stopped.run.state_events)
     assert stopped.run.trace[-1].name == "budget.exceeded"
+
+
+@pytest.mark.asyncio
+async def test_confirmation_stays_retryable_when_commit_reservation_does_not_fit():
+    engine = make_engine()
+    response = await engine.start(
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message=COMPLETE_REQUEST,
+    )
+    stored = engine.repository.get(response.run.run_id)
+    stored.execution_budget.max_commit_tool_calls = 2
+    engine.repository.save(stored)
+
+    stopped = await engine.confirm(
+        run_id=response.run.run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        action_token=response.run.action_token,
+    )
+
+    assert stopped.run.state == RunState.WAITING_CONFIRMATION
+    assert stopped.run.draft is None
+    assert stopped.run.execution_usage.commit_tool_calls == 0
+    assert stopped.run.execution_usage.reserved_commit_tool_calls == 0
+    assert stopped.run.trace[-1].detail["resource"] == "commit_tool_calls"

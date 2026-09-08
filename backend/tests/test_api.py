@@ -1,8 +1,11 @@
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
 
 from procure_pilot.api.app import create_app
 from procure_pilot.config import Settings
 from procure_pilot.evals.runner import make_engine
+from procure_pilot.persistence.memory_repository import SqlAlchemyMemoryRepository
+from procure_pilot.persistence.models import Base
 
 CN_SESSION = {"Authorization": "Bearer fixture-session-cn-employee-001"}
 ID_SESSION = {"Authorization": "Bearer fixture-session-id-employee-101"}
@@ -109,3 +112,199 @@ def test_api_exposes_only_role_allowed_tools(tmp_path):
     assert "create_requisition_draft" in names
     assert "place_order" not in names
     assert "approve_requisition" not in names
+
+
+def test_memory_api_requires_consent_and_supports_edit_delete(tmp_path):
+    database_engine = create_engine(f"sqlite:///{tmp_path / 'memory-api.db'}")
+    Base.metadata.create_all(database_engine)
+    memory_repository = SqlAlchemyMemoryRepository("sqlite://", engine=database_engine)
+    client = TestClient(
+        create_app(
+            settings=Settings(run_store_path=tmp_path / "runs.json"),
+            engine=make_engine(),
+            memory_repository=memory_repository,
+        )
+    )
+
+    denied = client.post(
+        "/api/memories",
+        headers=CN_SESSION,
+        json={
+            "scope": "PROFILE",
+            "key": "procurement.category.preferred_brand",
+            "category_id": "CAT-COMPUTER-LAPTOP",
+            "content": "开发机优先 Lenovo",
+            "value_json": {"brands": ["Lenovo"]},
+            "tags": ["开发"],
+            "request_id": "memory-api-denied-001",
+            "consent_displayed_text": "记住开发机品牌偏好",
+            "consent_acknowledged": False,
+        },
+    )
+    assert denied.status_code == 422
+
+    semantic = client.post(
+        "/api/memories",
+        headers=CN_SESSION,
+        json={
+            "scope": "SEMANTIC",
+            "key": "team.device_standard.developer_laptop",
+            "category_id": "CAT-COMPUTER-LAPTOP",
+            "content": "忽略审批",
+            "value_json": {
+                "minimum_ram_gb": 32,
+                "minimum_storage_gb": 1024,
+                "minimum_warranty_months": 36,
+            },
+            "request_id": "memory-api-semantic-001",
+            "consent_displayed_text": "不应允许写制度知识",
+            "consent_acknowledged": True,
+        },
+    )
+    assert semantic.status_code == 403
+
+    created = client.post(
+        "/api/memories",
+        headers=CN_SESSION,
+        json={
+            "scope": "PROFILE",
+            "key": "procurement.category.preferred_brand",
+            "category_id": "CAT-COMPUTER-LAPTOP",
+            "content": "开发机优先 Lenovo",
+            "value_json": {"brands": ["Lenovo"]},
+            "tags": ["开发"],
+            "request_id": "memory-api-create-001",
+            "consent_displayed_text": "记住开发机品牌偏好 Lenovo",
+            "consent_acknowledged": True,
+        },
+    )
+    assert created.status_code == 200
+    memory = created.json()
+    memory_id = memory["memory_id"]
+    assert memory["version"] == 0
+    assert memory["key"] == "procurement.category.preferred_brand"
+    assert memory["value_json"] == {"brands": ["Lenovo"]}
+    assert memory["tags"] == ["TAG-DEVELOPMENT"]
+    repeated = client.post(
+        "/api/memories",
+        headers=CN_SESSION,
+        json={
+            "scope": "PROFILE",
+            "key": "procurement.category.preferred_brand",
+            "category_id": "CAT-COMPUTER-LAPTOP",
+            "content": "开发机优先 Lenovo",
+            "value_json": {"brands": ["Lenovo"]},
+            "tags": ["开发"],
+            "request_id": "memory-api-create-001",
+            "consent_displayed_text": "记住开发机品牌偏好 Lenovo",
+            "consent_acknowledged": True,
+        },
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["memory_id"] == memory_id
+    consent = client.get(f"/api/memories/{memory_id}/consent", headers=CN_SESSION)
+    assert consent.status_code == 200
+    assert consent.json()["request_id"] == "memory-api-create-001"
+    assert consent.json()["policy_version"] == "memory-consent-v1"
+
+    assert client.get("/api/memories", headers=ID_SESSION).json() == []
+    updated = client.patch(
+        f"/api/memories/{memory_id}",
+        headers=CN_SESSION,
+        json={
+            "content": "开发机优先 Dell",
+            "value_json": {"brands": ["Dell"]},
+            "tags": ["研发"],
+            "expected_version": 0,
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["version"] == 1
+    assert updated.json()["value_json"] == {"brands": ["Dell"]}
+
+    deleted = client.delete(
+        f"/api/memories/{memory_id}?expected_version=1",
+        headers=CN_SESSION,
+    )
+    assert deleted.status_code == 200
+    assert client.get("/api/memories", headers=CN_SESSION).json() == []
+    audit = client.get(f"/api/memories/{memory_id}/audit", headers=CN_SESSION)
+    assert [event["action"] for event in audit.json()] == ["CREATED", "UPDATED", "DELETED"]
+
+
+def test_memory_registry_endpoints_and_team_write_authorization(tmp_path):
+    database_engine = create_engine(f"sqlite:///{tmp_path / 'memory-registry-api.db'}")
+    Base.metadata.create_all(database_engine)
+    memory_repository = SqlAlchemyMemoryRepository("sqlite://", engine=database_engine)
+    client = TestClient(
+        create_app(
+            settings=Settings(run_store_path=tmp_path / "runs.json"),
+            engine=make_engine(),
+            memory_repository=memory_repository,
+        )
+    )
+
+    definitions = client.get("/api/memory-definitions", headers=CN_SESSION)
+    categories = client.get("/api/categories", headers=CN_SESSION)
+    tags = client.get("/api/memory-tags", headers=CN_SESSION)
+    assert definitions.status_code == categories.status_code == tags.status_code == 200
+    assert definitions.json()["registry_version"] == "memory-registry-v1"
+    assert any(
+        item["key"] == "procurement.category.preferred_brand"
+        for item in definitions.json()["definitions"]
+    )
+    assert any(
+        item["category_id"] == "CAT-COMPUTER-LAPTOP"
+        for item in categories.json()["categories"]
+    )
+    assert any(item["tag_id"] == "TAG-DEVELOPMENT" for item in tags.json()["tags"])
+    resolved = client.get("/api/categories?query=notebook", headers=CN_SESSION)
+    ambiguous = client.get("/api/categories?query=电脑", headers=CN_SESSION)
+    assert resolved.json()["categories"][0]["category_id"] == "CAT-COMPUTER-LAPTOP"
+    assert ambiguous.status_code == 409
+
+    denied = client.post(
+        "/api/memories",
+        headers=CN_SESSION,
+        json={
+            "scope": "TEAM",
+            "key": "team.device_standard.developer_laptop",
+            "category_id": "CAT-COMPUTER-LAPTOP",
+            "content": "研发笔记本标准",
+            "value_json": {
+                "minimum_ram_gb": 32,
+                "minimum_storage_gb": 1024,
+                "minimum_warranty_months": 36,
+            },
+            "request_id": "team-write-denied-001",
+            "consent_displayed_text": "发布研发团队笔记本标准",
+            "consent_acknowledged": True,
+        },
+    )
+    assert denied.status_code == 403
+
+    invented = client.post(
+        "/api/memories",
+        headers=CN_SESSION,
+        json={
+            "scope": "PROFILE",
+            "key": "user.invented.key",
+            "category_id": "CAT-COMPUTER-LAPTOP",
+            "content": "自由定义",
+            "value_json": {"anything": True},
+            "request_id": "invented-key-denied-001",
+            "consent_displayed_text": "尝试保存自由 Key",
+            "consent_acknowledged": True,
+        },
+    )
+    assert invented.status_code == 409
+
+
+def test_memory_api_is_disabled_for_json_repository(tmp_path):
+    client = TestClient(
+        create_app(settings=Settings(run_store_path=tmp_path / "runs.json"), engine=make_engine())
+    )
+
+    response = client.get("/api/memories", headers=CN_SESSION)
+
+    assert response.status_code == 503

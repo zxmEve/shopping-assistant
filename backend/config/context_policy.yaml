@@ -1,0 +1,30 @@
+version: context-policy-v1
+ranking:
+  task_match: 0.40
+  category_or_key_match: 0.25
+  authority: 0.20
+  recency: 0.10
+  confidence: 0.05
+agents:
+  REQUIREMENT:
+    max_context_tokens: 5000
+    max_recent_messages: 6
+    max_profile_memories: 2
+    max_team_memories: 3
+    max_episodic_memories: 0
+    allowed_key_patterns:
+      - procurement.{category}.minimum_
+      - procurement.default.
+      - team.device_standard.{category}
+      - team.device_standard.general
+  SOURCING:
+    max_context_tokens: 7000
+    max_recent_messages: 3
+    max_profile_memories: 4
+    max_team_memories: 3
+    max_episodic_memories: 2
+    allowed_key_patterns:
+      - procurement.{category}.preferred_
+      - procurement.default.delivery_
+      - team.device_standard.{category}
+      - team.device_standard.general
