@@ -44,5 +44,6 @@
   {"case_id":"knowledge-002","category":"policy_knowledge","description":"制度检索执行tenant、品类和生效时间过滤","expected":"TENANT_CATEGORY_EFFECTIVE_FILTER","requirement_ids":[],"acceptance_refs":["M4-RAG-ISOLATION"]},
   {"case_id":"knowledge-003","category":"policy_knowledge","description":"制度文档版本与Policy-as-Code不一致时一票否决","expected":"POLICY_VERSION_CONFLICT_VETO","requirement_ids":["GOV-03"],"acceptance_refs":["M4-RAG-VERSION"]},
   {"case_id":"knowledge-004","category":"policy_knowledge","description":"匹配制度条款作为引用进入推荐证据但不替代规则裁决","expected":"ENGINE_POLICY_CITATION_GROUNDING","requirement_ids":["GOV-03"],"acceptance_refs":["M4-RAG-ENGINE"]},
+  {"case_id":"knowledge-005","category":"policy_knowledge","description":"FTS与向量双路召回经RRF融合后通过条款级标注集评测","expected":"HYBRID_RETRIEVAL_HIT_AT_3_MRR","requirement_ids":[],"acceptance_refs":["M4-RAG-HYBRID-EVAL"]},
   {"case_id":"replay-001","category":"fault_safety","description":"同输入确定性回放","expected":"ZERO_DIFF","requirement_ids":["OPS-05"]}
 ]

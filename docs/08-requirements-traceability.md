@@ -40,7 +40,7 @@
 | COST-02 | IMPLEMENTED | API 区分税、运费、条件优惠和无条件总价 | UI 未完整展示明细、条件与风险 |
 | COST-03 | IMPLEMENTED | 代码支持含税/未税计算 | 缺同一报价双口径 golden test |
 | GOV-01 | VERIFIED | 预算由企业 Gateway 查询，Agent 无法覆盖 | 无 |
-| GOV-02 | IMPLEMENTED | Policy ID/version 作为规则 evidence ref；独立制度文档按版本、生效期和条款切块，FTS 引用通过版本一致性检查后进入 Candidate evidence | 缺逐结论引用映射、向量/RRF 检索和真实制度引用准确率标注集 |
+| GOV-02 | IMPLEMENTED | Policy ID/version 作为规则 evidence ref；独立制度文档按版本、生效期和条款切块，FTS/pgvector 经 RRF 融合后通过版本一致性检查进入 Candidate evidence | 缺逐结论引用映射、真实语义 embedding 和大规模真实制度引用准确率标注集 |
 | GOV-03 | VERIFIED | 确定性 rule evaluator 产生最终政策决定 | 无 |
 | GOV-04 | IMPLEMENTED | 支持供应商准入和发票能力 | 缺地区状态和对应测试 |
 | GOV-05 | IMPLEMENTED | 金额阈值和供应商例外改变审批路径 | 缺审批路由版本 |
@@ -68,8 +68,8 @@
 | 网页 Prompt Injection | VERIFIED | Fixture 中包含注入文本，不能触发写入 |
 | 多来源失败与草稿超时恢复 | IMPLEMENTED | 仅单来源 429/timeout 部分成功 |
 | 价格变化与旧卡片重放 | VERIFIED | `quote_price_changed` 场景和自动化测试覆盖变化、二次确认、旧 Token 拒绝 |
-| 46 个版本化场景 | VERIFIED | Agent Runtime 覆盖工具与轨迹；数据库覆盖回写、租户隔离与乐观锁；长期记忆覆盖个人/团队边界、生命周期和候选确认安全；制度知识覆盖引用、时态/租户过滤、版本冲突和 Engine grounding |
-| 制度知识检索与引用 | IMPLEMENTED | 治理角色导入/发布，PostgreSQL GIN FTS，tenant/category/effective 过滤，推荐和确认前 Policy 版本校验，无答案或冲突安全停止 | pgvector/RRF、PDF/DOCX ingestion、逐结论 citation grader 和管理 UI 待完成 |
+| 47 个版本化场景 | VERIFIED | Agent Runtime 覆盖工具与轨迹；数据库覆盖回写、租户隔离与乐观锁；长期记忆覆盖个人/团队边界、生命周期和候选确认安全；制度知识覆盖引用、时态/租户过滤、版本冲突、混合检索标注和 Engine grounding |
+| 制度知识检索与引用 | IMPLEMENTED | 治理角色导入/发布，PostgreSQL GIN FTS + pgvector HNSW，tenant/category/effective 预过滤，RRF/确定性重排，向量降级，推荐和确认前 Policy 版本校验 | PDF/DOCX/OCR ingestion、真实 embedding、逐结论 citation grader 和管理 UI 待完成 |
 | 完整 trajectory cassette | PLANNED | 当前只比较确定性结果投影 |
 | CI veto gate | VERIFIED | 独立 workflow 执行 Ruff、pytest、scenario eval 和前端构建，并上传评测报告 |
 | 质量/安全/性能/成本报告 | IMPLEMENTED | deterministic 与 live 报告隔离；DeepSeek 3/3 live 基线包含成功率、token、延迟、trajectory 和版本化价格估算 | 样本过小，费用尚未与 Provider 账单核对 |
@@ -78,6 +78,6 @@
 
 当前版本可以描述为：
 
-> 确定性核心闭环通过 46 个 fixture 场景；双 Agent Runtime 已通过 fixture 测试，能够证明路由、并行、权限、预算、陈旧结果拒绝、回退和完整草稿闭环。双 Agent DeepSeek 12-case × 1 smoke 已完成；历史单总控报告只作为旧架构记录。
+> 确定性核心闭环通过 47 个 fixture 场景；双 Agent Runtime 已通过 fixture 测试，能够证明路由、并行、权限、预算、陈旧结果拒绝、回退和完整草稿闭环。双 Agent DeepSeek 12-case × 1 smoke 已完成；历史单总控报告只作为旧架构记录。
 
-长期记忆授权 CRUD、Agent Context、结构化 Registry/Consent、候选确认和制度 FTS 最小纵向切片均已完成；后端回归 109/109，确定性评测 46/46，双 Agent DeepSeek 12-case × 1 smoke 为 12/12。下一步实现 pgvector + RRF 混合检索和检索标注集；发布前补齐双 Agent ×3 稳定性矩阵。
+长期记忆授权 CRUD、Agent Context、结构化 Registry/Consent、候选确认和制度混合检索最小纵向切片均已完成；后端回归 111/111，确定性评测 47/47，5 条检索 fixture 的 Hit@3/MRR/无答案准确率均为 1.0，双 Agent DeepSeek 12-case × 1 smoke 为 12/12。下一步补文档文件 ingestion、真实 embedding 与更大标注集；发布前补齐双 Agent ×3 稳定性矩阵。

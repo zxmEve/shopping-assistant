@@ -22,7 +22,7 @@
 | M2 真正 Agent 工具链 | 强类型 function tools、多轮 Orchestrator、Harness 授权和 Agent 轨迹评测 | 已完成最小纵向切片 | Agent 实际选择并调用目录、预算、成本和制度工具，工具选择/参数/权限有稳定基线 |
 | M2.1 DeepSeek 真实多 Agent | 显式服务端调度独立 Agent、阶段预算、完整 Live 确认闭环 | 进行中：S2 调度内核与 fixture 验证已完成 | DeepSeek 总控与专家发生独立模型执行，正常 Live case 可安全到达 `DRAFT_CREATED` |
 | M3 数据库基础 | PostgreSQL、SQLAlchemy/Alembic、tenant-scoped repository、状态版本和业务唯一约束 | 已完成最小纵向切片 | JSON Repository 可由数据库实现替换，跨租户与并发写入测试通过 |
-| M4 长期记忆与 RAG | Profile/Team/Episodic、结构化 Registry/Consent、Agent Context、pgvector + FTS | 进行中：记忆闭环与制度 FTS 首片已完成，vector/RRF 待做 | 记忆准确、安全、可删除且不越租户，制度回答带版本化证据 |
+| M4 长期记忆与 RAG | Profile/Team/Episodic、结构化 Registry/Consent、Agent Context、pgvector + FTS | 进行中：记忆闭环与制度混合检索首片已完成，文件 ingestion/真实 embedding 待做 | 记忆准确、安全、可删除且不越租户，制度回答带版本化证据 |
 | M5 工程可靠性增强 | checkpoint/resume/cancel、cassette replay、跨进程熔断，必要时 Temporal | 未开始 | 重启和外部依赖故障可恢复，离线轨迹可重复回放 |
 | M6 完整评测与自进化 | 60/180 场景、holdout、shadow/canary/rollback | 未开始 | 候选版本不能绕过 veto 和人工批准 |
 | M7 面试交付 | 六套 Demo、架构材料、失败复盘、讲解稿 | 未开始 | 一键演示，所有数字可由报告复现 |
@@ -48,7 +48,8 @@ S2 Provider 无关的双 Agent Runtime（已完成）
 -> M4.1/M4.2 记忆 Context 与结构化 Registry（已完成）
 -> M4.3 记忆候选确认闭环（已完成）
 -> M4.4 制度 FTS 与引用回传（已完成最小纵向切片）
--> M4.5 pgvector + RRF 混合检索与检索评测（下一步）
+-> M4.5 pgvector + RRF 混合检索与检索评测（已完成最小纵向切片）
+-> M4.6 PDF/DOCX/OCR ingestion、真实 embedding 与检索集扩容（下一步）
 -> M5 checkpoint/replay 等工程可靠性增强
 -> M6 完整评测与受控自进化
 -> M7 面试交付
@@ -94,7 +95,8 @@ S2 Provider 无关的双 Agent Runtime（已完成）
 | 5 | 受控 Key/Category/Tag、结构化值、有效期、TEAM 写权限和 Consent | 已完成并迁移真实 PostgreSQL 17 |
 | 6 | 记忆候选提取与用户确认，不自动写长期记忆 | 已完成并在真实 PostgreSQL 17 验证 |
 | 7 | 制度文档分块、版本/生效期、FTS 检索和 Policy 引用回传 | 已完成最小纵向切片 |
-| 8 | pgvector + FTS + RRF 混合检索与证据引用 | 待开始 |
+| 8 | pgvector + FTS + RRF 混合检索、确定性重排与条款标注评测 | 已完成最小纵向切片并在真实 PostgreSQL 17 验证 |
+| 9 | PDF/DOCX/OCR ingestion、真实 embedding provider、离线回填与大规模标注 | 待开始 |
 
 ## 8. 版本与发布门禁
 

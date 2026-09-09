@@ -8,11 +8,15 @@ from sqlalchemy import create_engine
 
 from procure_pilot.api.app import create_app
 from procure_pilot.config import Settings
-from procure_pilot.domain.knowledge import PolicyKnowledgeReviewRequired
+from procure_pilot.domain.knowledge import (
+    KNOWLEDGE_EMBEDDING_DIMENSIONS,
+    PolicyKnowledgeReviewRequired,
+)
 from procure_pilot.domain.models import RunState, utc_now
 from procure_pilot.evals.runner import make_engine
 from procure_pilot.persistence.knowledge_repository import SqlAlchemyKnowledgeRepository
 from procure_pilot.persistence.models import Base
+from procure_pilot.services.embeddings import HashingEmbeddingProvider
 from procure_pilot.services.knowledge import (
     PolicyKnowledgeService,
     clean_policy_text,
@@ -23,6 +27,31 @@ EMPLOYEE_SESSION = {"Authorization": "Bearer fixture-session-cn-employee-001"}
 OTHER_TENANT_SESSION = {"Authorization": "Bearer fixture-session-id-employee-101"}
 ADMIN_SESSION = {"Authorization": "Bearer fixture-session-cn-knowledge-admin"}
 CATEGORY = "CAT-COMPUTER-LAPTOP"
+
+
+class SemanticFixtureEmbeddingProvider:
+    model = "semantic-fixture-v1"
+    dimensions = KNOWLEDGE_EMBEDDING_DIMENSIONS
+
+    def embed(self, texts):
+        values = []
+        for text in texts:
+            vector = [0.0] * self.dimensions
+            vector[0 if "移动工作终端" in text or "内存" in text else 1] = 1.0
+            values.append(vector)
+        return values
+
+
+class QueryFailingEmbeddingProvider(HashingEmbeddingProvider):
+    def __init__(self):
+        super().__init__()
+        self.calls = 0
+
+    def embed(self, texts):
+        self.calls += 1
+        if self.calls > 1:
+            raise RuntimeError("fixture embedding provider unavailable")
+        return super().embed(texts)
 
 
 @pytest.fixture
@@ -197,6 +226,56 @@ def test_publishing_new_version_preserves_historical_effective_search(knowledge_
     assert {item.policy_version for item in current.citations} == {"3"}
 
 
+def test_hybrid_search_can_recover_vector_only_match_and_explains_ranking(tmp_path):
+    database_engine = create_engine(f"sqlite:///{tmp_path / 'hybrid.db'}")
+    Base.metadata.create_all(database_engine)
+    repository = SqlAlchemyKnowledgeRepository("sqlite://", engine=database_engine)
+    service = PolicyKnowledgeService(
+        repository,
+        embedding_provider=SemanticFixtureEmbeddingProvider(),
+    )
+    ingest_and_publish(service)
+
+    result = service.search(
+        tenant_id="demo_cn",
+        category_id=CATEGORY,
+        query="移动工作终端",
+    )
+
+    assert result.retrieval_mode == "hybrid_rrf"
+    assert result.fts_candidate_count == 0
+    assert result.vector_candidate_count >= 1
+    assert result.citations[0].clause_ref == "第一条"
+    assert result.citations[0].retrieval_channels == ["vector"]
+    assert result.citations[0].fts_rank is None
+    assert result.citations[0].fts_score is None
+    assert result.citations[0].vector_rank == 1
+    assert result.citations[0].rrf_score > 0
+    assert result.citations[0].rerank_score == result.citations[0].score
+
+
+def test_vector_provider_failure_degrades_to_fts_without_losing_policy_answer(tmp_path):
+    database_engine = create_engine(f"sqlite:///{tmp_path / 'degraded.db'}")
+    Base.metadata.create_all(database_engine)
+    repository = SqlAlchemyKnowledgeRepository("sqlite://", engine=database_engine)
+    service = PolicyKnowledgeService(
+        repository,
+        embedding_provider=QueryFailingEmbeddingProvider(),
+    )
+    ingest_and_publish(service)
+
+    result = service.search(
+        tenant_id="demo_cn",
+        category_id=CATEGORY,
+        query="研发笔记本保修",
+    )
+
+    assert result.retrieval_mode == "fts_only"
+    assert result.degraded_channels == ["vector"]
+    assert result.citations
+    assert result.citations[0].retrieval_channels == ["fts"]
+
+
 def test_policy_evidence_fails_closed_after_governed_knowledge_is_enabled(knowledge_stack):
     service, _ = knowledge_stack
     ingest_and_publish(service, policy_version="2")
@@ -325,6 +404,8 @@ def test_knowledge_api_enforces_admin_write_and_tenant_scoped_read(knowledge_sta
     )
     assert found.status_code == 200
     assert found.json()["citations"]
+    assert found.json()["retrieval_mode"] == "hybrid_rrf"
+    assert found.json()["citations"][0]["rrf_score"] > 0
     assert isolated.status_code == 200
     assert isolated.json()["citations"] == []
 

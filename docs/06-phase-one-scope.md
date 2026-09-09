@@ -161,7 +161,7 @@ Phase 1 已完成核心闭环的首轮实现和确定性评测，但不等同完
 
 1. 一键启动的 fixture Demo；
 2. 一条正常采购和一条攻击/故障演示脚本；
-3. 46 个版本化场景、golden state、grader 和确定性结果投影；完整 cassette 仍按追踪矩阵补齐；
+3. 47 个版本化场景、golden state、grader 和确定性结果投影；完整 cassette 仍按追踪矩阵补齐；
 4. 可查看的 Agent/tool/state/evidence trace；
 5. 自动生成的 HTML/JSON 评测报告；
 6. 架构说明、已知限制和失败案例复盘；

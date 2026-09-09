@@ -1,8 +1,8 @@
 # 记忆、上下文与知识检索模块技术设计
 
-> 版本：v1.3
+> 版本：v1.4
 > 日期：2026-09-09
-> 状态：M2.1、M2.2、M2.3 和 M3 FTS 最小纵向切片已实现；混合检索仍为目标设计
+> 状态：M2.1、M2.2、M2.3，以及 M3 FTS + pgvector + RRF 混合检索最小纵向切片已实现
 > 适用组件：Long-term Memory、ContextAssembler、Requirement Agent、Sourcing Agent、Knowledge Base/RAG
 
 ## 1. 文档目的
@@ -41,19 +41,22 @@
 - 已增加定义版本、稳定品类 ID、正式 Tag ID、有效期、置信度和 metadata；
 - Consent 与记忆在同一事务写入，重复请求由请求 ID 和命令指纹保护；
 - 普通员工不能写 TEAM 记忆；新确认值会将旧值标记为 `SUPERSEDED`；
-- 已完成上下文、Registry、候选确认和制度 FTS 专项测试，总后端回归为 109/109。
-- 已建立独立 Knowledge Document/Version/Chunk 表和 Alembic `20260909_0005`；
+- 已完成上下文、Registry、候选确认和制度混合检索专项测试，总后端回归为 111/111。
+- 已建立独立 Knowledge Document/Version/Chunk 表和 Alembic `20260909_0006`；
 - 已实现原文哈希、页码噪声清理、标题/编号条款优先切块和 CJK unigram/bigram 索引文本；
 - 已实现治理角色导入/发布/重建索引 API，以及 tenant/category/effective/version 过滤；
 - PostgreSQL 使用 `to_tsvector('simple', search_text)` GIN 索引，SQLite 提供测试兼容路径；
 - 检索返回条款级版本化引用，Engine 在推荐与确认前校验引用版本与 Policy-as-Code；
+- 已实现 PostgreSQL `vector(256)`、HNSW cosine 索引、FTS/vector 双路 Top-K、RRF（k=60）和确定性重排；
+- 每条引用返回 FTS/vector rank、RRF、向量相似度、重排分与召回通道；向量生成失败降级 FTS；
+- 5 条 fixture 标签已计算 Hit@3、MRR、无答案准确率与双路信号覆盖率。
 - 已发布知识库无答案、无有效版本或版本冲突时安全停止；未启用知识库的租户兼容既有规则引用。
 
 ### 2.2 当前尚未实现
 
-- 没有向量召回、RRF 混合排序和 cross-encoder rerank；
+- 默认 embedding 是离线哈希 n-gram 基线，没有接真实语义 embedding 或 cross-encoder rerank；
 - 没有 PDF/DOCX、复杂表格和扫描件 OCR ingestion；
-- 没有真实制度标注集上的 Recall@K、MRR、citation precision/recall 基线；
+- 没有大规模真实制度 holdout 上的 Recall@K、MRR、citation precision/recall 基线；
 - 没有物理清除、缓存/向量副本删除和保留期任务；
 - Registry 当前是受版本控制的 YAML，还没有接企业 PIM/ERP 同步表；Tag 当前保存为正式 ID 数组，尚未拆成关联表。
 
@@ -929,12 +932,19 @@ def accept_memory_candidate(candidate_id, identity, confirmation, request_id):
 
 ```python
 def evaluate_policy_with_knowledge(query, identity, purchase_date):
-    chunks = knowledge_retriever.search(
+    fts_hits = knowledge_retriever.search_fts(
         tenant_id=identity.tenant_id,
         query=query,
         effective_at=purchase_date,
         status="PUBLISHED",
     )
+    vector_hits = knowledge_retriever.search_vector(
+        tenant_id=identity.tenant_id,
+        query_embedding=embedding_provider.embed(query),
+        effective_at=purchase_date,
+        status="PUBLISHED",
+    )
+    chunks = deterministic_rerank(rrf(fts_hits, vector_hits, k=60))
     verified = verify_chunk_sources_and_versions(chunks)
     rule_result = policy_rule_service.evaluate(query, identity)
 
@@ -1168,14 +1178,15 @@ M2.2 已补充 `effective_at` 和 `expires_at`；当前 Repository 与 ContextAs
 
 当前提取器故意偏向少提取，避免误把一次性要求写成长期偏好。后续可以增加模型提取器来覆盖复杂表达，但模型输出仍只能成为候选，并且必须通过相同 Registry 与确认链路。
 
-### M3：独立知识库与制度 RAG（FTS 首片已完成）
+### M3：独立知识库与制度 RAG（混合检索首片已完成）
 
 1. 建 Knowledge Document/Version/Chunk（已完成）；
 2. 将历史 `SEMANTIC` 迁移或停用；
-3. FTS 召回已完成；pgvector + RRF 混合召回待完成；
+3. FTS + pgvector 双路召回、RRF 和确定性重排（已完成）；
 4. tenant/category/effective/version 过滤（已完成）；
 5. RAG 引用与 Policy-as-Code 版本一致性（已完成）；
 6. 无答案、过期、冲突进入安全停止或人工审核（已完成首片）。
+7. PDF/DOCX/OCR、真实 embedding、离线回填与大规模 holdout（待完成）。
 
 ### M4：持久化 Context 和生产强化
 

@@ -1,6 +1,6 @@
 # ProcurePilot：企业采购决策与审批 Agent
 
-> 当前状态：运行时已收敛为 Requirement Agent 和 Sourcing Agent 两个模型角色。Agent Context、结构化记忆、记忆候选确认和制度 RAG 的 FTS 最小纵向切片均已完成。当前 109 个后端测试、46 个确定性评测通过；DeepSeek 双 Agent 12/12 smoke 已通过，×3 稳定性矩阵待运行。
+> 当前状态：运行时已收敛为 Requirement Agent 和 Sourcing Agent 两个模型角色。Agent Context、结构化记忆、记忆候选确认，以及制度 RAG 的 FTS + pgvector + RRF 混合检索均已完成。当前 111 个后端测试、47 个确定性评测通过；DeepSeek 双 Agent 12/12 smoke 已通过，×3 稳定性矩阵待运行。
 
 ProcurePilot 是一个面向企业员工、采购专员和审批人的 AI 采购助手。它将自然语言采购需求转化为结构化申请，主动补齐关键约束，并行查询多个合规来源，完成同款归一、到手成本计算、预算与制度校验、供应商风险检查，最终在人工确认后生成采购申请草稿。
 
@@ -59,7 +59,7 @@ make dev
 
 真实模型评测与 deterministic 报告分开保存。配置 Key 后，`make live-eval` 运行当前双 Agent 拓扑的 3 次完整闭环；`make live-eval-s3` 运行 12-case × 3-run smoke。报告写入 `backend/evals/reports/live/`；没有 Key 时命令会明确停止，不会生成伪造的 live 基线。真实评测会产生费用，应在确认预算后手动执行。
 
-当前双 Agent 代码基线为 109/109 后端测试通过，确定性评测为 46/46。双 Agent DeepSeek 12-case × 1 smoke 已 12/12 通过；此前五 Agent 和 direct-tools 报告只保留为历史记录，不能作为新拓扑发布证据。发布前仍需完成 12-case × 3 稳定性矩阵。
+当前双 Agent 代码基线为 111/111 后端测试通过，确定性评测为 47/47。双 Agent DeepSeek 12-case × 1 smoke 已 12/12 通过；此前五 Agent 和 direct-tools 报告只保留为历史记录，不能作为新拓扑发布证据。发布前仍需完成 12-case × 3 稳定性矩阵。
 
 Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixture-session-cn-employee-001`。它用于证明客户端不能直接指定 tenant、用户或成本中心，不代表生产 SSO。
 
@@ -112,14 +112,15 @@ Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixtur
 - M2.1 上下文装配：版本化 ContextPolicy 控制两个 Agent 各自可见的 Key、Scope、消息数和 token；同 Key 冲突只保留一个结果，本次明确输入优先；Context Trace 记录选择/排除元数据但不复制私人正文。
 - M2.2 结构化记忆：Registry 定义允许保存的 Key、Value Schema、品类和 Tag；歧义品类、未知 Tag、错误值和越权 TEAM 写入会被拒绝；Consent、请求幂等和版本替代在数据库事务中完成。
 - M2.3 记忆候选：仅从已完成 Run 的用户原话保守提取长期偏好；临时需求、助手建议和凭证不会生成候选；候选经用户接受后才复用 Consent 与幂等链路写入长期记忆，支持拒绝、过期、去重和冲突提示。
-- 制度 RAG FTS 首片：制度原文按租户、品类、版本和生效期独立治理；管理员导入并发布后，PostgreSQL GIN FTS 返回条款级引用；引用与 Policy-as-Code 版本不一致或无有效条款时安全停止，RAG 不替代规则裁决。
+- 制度 RAG 混合检索：制度原文按租户、品类、版本和生效期独立治理；PostgreSQL GIN FTS 与 pgvector HNSW 各取 Top-K，经 RRF 融合和确定性重排返回条款级引用；每条引用暴露通道、rank、相似度与融合分，向量服务故障时降级到 FTS；引用与 Policy-as-Code 版本不一致或无有效条款时安全停止。
 - 写前重校验：Token 绑定需求版本、动作和报价快照；价格变化时展示 Diff 并要求重新确认。
 - 可重复评测：固定 seed、clock 和故障场景，生成 JSON/HTML 基线报告。
 
 ## 规划中的能力
 
 - 在受控预算下执行并归档双 Agent DeepSeek 12-case × 3 稳定性矩阵；
-- pgvector + FTS + RRF 制度混合检索与 rerank；
+- PDF/DOCX、复杂表格与扫描件 OCR ingestion，以及真实 embedding provider 和离线回填任务；
+- 扩大制度条款标注集，补 Recall@K、citation precision/recall 与真实语义模型对比；
 - 更大别名库、hybrid retrieval、pairwise matcher 与真实 Provider 标注集上的召回/置信度校准；
 - 真实模型扩大样本、费用账单校对、跨进程熔断、checkpoint 和 cassette replay；
 - 60/180 场景分层评测、真实模型成本与延迟基线；

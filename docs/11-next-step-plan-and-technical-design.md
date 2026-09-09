@@ -1,7 +1,7 @@
 # 项目进度与下一步计划
 
 > 更新日期：2026-09-09
-> 当前主线：双 Agent、记忆闭环和制度 RAG 的 FTS 最小纵向切片已完成；下一步补 pgvector + RRF 混合检索和标注检索集。
+> 当前主线：双 Agent、记忆闭环和制度 RAG 的 FTS + pgvector + RRF 最小纵向切片已完成；下一步补文档文件 ingestion、真实 embedding 和检索集扩容。
 
 ## 1. 当前结论
 
@@ -37,8 +37,8 @@
 | Agent 上下文 | 已完成 M2.1 | ContextPolicy、权限过滤、双 Agent 投影、冲突处理、token 裁剪和 Trace |
 | 结构化记忆 | 已完成 M2.2 | 受控 Key/Category/Tag Registry、Schema、有效期、Consent、TEAM 写权限、版本替代 |
 | 记忆候选 | 已完成 M2.3 | 安全终态提取、PII/凭证/临时需求过滤、接受/拒绝/过期、幂等写入与 UI |
-| 制度知识 FTS | 已完成最小纵向切片 | 独立文档/版本/条款，管理员发布，tenant/category/effective 过滤，引用与规则版本一致性校验 |
-| 自动测试 | 已完成当前基线 | 109 个后端测试和 46 个确定性评测通过 |
+| 制度知识混合检索 | 已完成 M3.2 | 独立文档/版本/条款，GIN FTS + pgvector HNSW，RRF/确定性重排，权限/时态预过滤，引用与规则版本一致性校验 |
+| 自动测试 | 已完成当前基线 | 111 个后端测试和 47 个确定性评测通过；5 条检索 fixture 的 Hit@3/MRR/无答案准确率为 1.0 |
 
 ## 3. 还没有完成
 
@@ -46,7 +46,7 @@
 - Sourcing Agent 使用 fixture provider；尚未接真实企业目录或商城 API。
 - 候选提取当前是保守的确定性规则，只覆盖 Registry 中已登记的笔记本偏好；更复杂表达可在后续接入受 Schema 约束的模型提取器，但不能改变确认边界。
 - Registry 当前来自版本控制 YAML，尚未从真实 PIM/ERP 主数据同步；Tag 暂存为正式 ID 数组，未拆关联表。
-- 制度结论仍来自版本化 Policy-as-Code；FTS 已提供条款引用，但尚未加入向量召回、RRF、rerank 和真实制度标注集。
+- 制度结论仍来自版本化 Policy-as-Code；当前离线向量是可复现的哈希 n-gram 基线，尚未接真实语义 embedding、PDF/DOCX/OCR 解析和大规模真实制度标注集。
 - PostgreSQL 按请求边界保存 Run；尚未把每个 Agent execution/checkpoint 做成可租约恢复的记录。
 - 两 Agent 新拓扑已完成 DeepSeek 12-case × 1 smoke（12/12），尚未执行 ×3 稳定性门禁。
 - “Agent 进化”只有评测和报告基础，还没有形成提案、离线验证、人工审批、canary、回滚闭环。
@@ -118,7 +118,7 @@ M2.2 已补上 `effective_at/expires_at`，Repository 和 ContextAssembler 现�
 7. 前端展示可选确认卡，明确“不接受就不会保存”；
 8. SQLite 自动化回归和真实 PostgreSQL 17 migration `20260908_0004` 已通过。
 
-### M3：接入制度 RAG（FTS 首片已完成）
+### M3：接入制度 RAG（M3.1/M3.2 已完成）
 
 目标：RAG 负责“找到并引用适用条款”，Policy Service 仍负责最终决定。
 
@@ -132,9 +132,9 @@ M2.2 已补上 `effective_at/expires_at`，Repository 和 ContextAssembler 现�
 
 RAG 不直接成为第三个 Agent。它是 Policy Service 的只读检索能力。若检索不到有效条款，系统返回 `NEEDS_REVIEW` 或安全停止，不能让模型补写制度。
 
-已完成：原文哈希、结构切块、文档版本/生效期、治理角色导入和发布、PostgreSQL GIN FTS、tenant/category/effective 过滤、条款引用、Engine 推荐/确认前版本复核，以及无答案/无有效版本/版本冲突安全停止。Alembic `20260909_0005` 已在 PostgreSQL 17 验证。
+已完成：原文哈希、结构切块、文档版本/生效期、治理角色导入和发布、PostgreSQL GIN FTS、pgvector `vector(256)`、HNSW cosine 索引、tenant/category/effective 权限预过滤、FTS/vector 各自 Top-K、RRF（k=60）、确定性重排、向量故障降级、可解释 rank/score、条款引用、Engine 推荐/确认前版本复核，以及无答案/无有效版本/版本冲突安全停止。Alembic `20260909_0006` 已从空库在 PostgreSQL 17 + pgvector 0.8.6 验证。
 
-下一切片：增加 pgvector embedding、FTS/vector 各自 Top-K、RRF 融合、可选 rerank，并建立带相关/不相关条款标注的检索评测集。规则结论继续用固定输入完全复现。
+评测已加入 5 条相关/不相关条款标签，报告输出 Hit@3、MRR、无答案准确率和双路信号覆盖率。当前 1.0 是小型 fixture 门禁，不代表生产准确率。下一切片增加 PDF/DOCX/OCR ingestion、可配置真实 embedding provider、离线回填任务和更大 holdout 标注集；规则结论继续用固定输入完全复现。
 
 ### M4：持久化执行与检查点
 
@@ -177,4 +177,4 @@ RAG 不直接成为第三个 Agent。它是 Policy Service 的只读检索能力
 
 ## 6. 最近的一个具体开发任务
 
-下一次开发应完成 **M3.2 pgvector—FTS/vector 双路召回—RRF—检索评测集**。制度知识继续使用独立知识库，不能塞进用户记忆；Policy-as-Code 仍负责最终允许、拒绝或人工复核。DeepSeek ×3 稳定性门禁在发布前补齐，但不阻塞本地检索开发。
+下一次开发应完成 **M3.3 文档 ingestion—真实 embedding—离线回填—检索 holdout 扩容**。制度知识继续使用独立知识库，不能塞进用户记忆；Policy-as-Code 仍负责最终允许、拒绝或人工复核。DeepSeek ×3 稳定性门禁在发布前补齐，但不阻塞本地文档管线开发。

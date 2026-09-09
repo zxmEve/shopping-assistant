@@ -47,7 +47,7 @@ flowchart TB
     RT --> MATCH[商品归一与硬约束匹配]
     RT --> COST[到手成本计算]
     RT --> POLICY[预算与制度规则]
-    RT --> KB[制度知识 FTS<br/>版本化条款引用]
+    RT --> KB[制度知识 FTS + pgvector + RRF<br/>版本化条款引用]
     RT --> EVIDENCE[候选与证据校验]
     RT --> STATE[状态机与检查点]
     RT --> HITL[人工确认与幂等写入]
@@ -175,6 +175,6 @@ sequenceDiagram
 
 ## 9. 当前与后续边界
 
-当前已实现：两个 Agent、确定性业务服务、状态机、执行预算、三来源并行读取、有限重试/熔断、证据校验、人工确认、写前复核、幂等草稿、JSON/PostgreSQL Repository、长期记忆闭环，以及制度文档版本化发布、FTS 检索和条款引用。
+当前已实现：两个 Agent、确定性业务服务、状态机、执行预算、三来源并行读取、有限重试/熔断、证据校验、人工确认、写前复核、幂等草稿、JSON/PostgreSQL Repository、长期记忆闭环，以及制度文档版本化发布、FTS/pgvector 双路召回、RRF 重排和条款引用。
 
-M2.1 已将授权长期记忆通过 ContextAssembler 接入两个 Agent，M2.2 已完成受控 Key/Category/Tag、结构化值和 Consent，M2.3 已完成安全终态候选提取、用户确认和幂等写入。制度 RAG 已完成 FTS 最小纵向切片；下一步增加 pgvector、RRF、rerank 和检索标注集，再继续持久化 Agent execution/checkpoint、跨进程租约、真实 Provider 更大样本评测和受控 Agent 进化。
+M2.1 已将授权长期记忆通过 ContextAssembler 接入两个 Agent，M2.2 已完成受控 Key/Category/Tag、结构化值和 Consent，M2.3 已完成安全终态候选提取、用户确认和幂等写入。制度 RAG 已完成混合检索最小纵向切片；下一步补 PDF/DOCX/OCR ingestion、真实 embedding provider 与更大标注集，再继续持久化 Agent execution/checkpoint、跨进程租约、真实 Provider 更大样本评测和受控 Agent 进化。

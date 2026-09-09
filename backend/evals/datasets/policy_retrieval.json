@@ -1,0 +1,22 @@
+[
+  {
+    "query": "研发笔记本最低内存是多少",
+    "relevant_clause_refs": ["第一条"]
+  },
+  {
+    "query": "保修期要求",
+    "relevant_clause_refs": ["第一条"]
+  },
+  {
+    "query": "供应商没有准入资格由谁复核",
+    "relevant_clause_refs": ["第二条"]
+  },
+  {
+    "query": "超过一万元走什么审批",
+    "relevant_clause_refs": ["第二条"]
+  },
+  {
+    "query": "量子卫星发射许可",
+    "relevant_clause_refs": []
+  }
+]

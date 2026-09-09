@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     JSON,
     DateTime,
@@ -18,7 +19,10 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from procure_pilot.domain.knowledge import KNOWLEDGE_EMBEDDING_DIMENSIONS
+
 JSON_DOCUMENT = JSON().with_variant(JSONB(), "postgresql")
+KNOWLEDGE_VECTOR = VECTOR(KNOWLEDGE_EMBEDDING_DIMENSIONS).with_variant(JSON(), "sqlite")
 
 
 class Base(DeclarativeBase):
@@ -297,6 +301,13 @@ class KnowledgeChunkRecord(Base):
             text("to_tsvector('simple', search_text)"),
             postgresql_using="gin",
         ).ddl_if(dialect="postgresql"),
+        Index(
+            "ix_knowledge_chunks_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ).ddl_if(dialect="postgresql"),
     )
 
     chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -313,4 +324,6 @@ class KnowledgeChunkRecord(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     search_text: Mapped[str] = mapped_column(Text, nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(KNOWLEDGE_VECTOR)
+    embedding_model: Mapped[str | None] = mapped_column(String(128))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

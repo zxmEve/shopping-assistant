@@ -19,8 +19,8 @@
 - React 采购对话、推荐比较、审批预览、草稿状态和 Agent Trace 页面；
 - PostgreSQL/SQLAlchemy Repository、Alembic migration、租户条件、乐观锁和草稿业务唯一键；
 - consent-backed 长期记忆表与 API，覆盖 Profile/Team/Episodic/Semantic、版本化修改、软删除和审计；
-- 制度知识独立文档/版本/条款、治理角色发布、PostgreSQL GIN FTS、时态/租户过滤、版本化引用和 Policy-as-Code 一致性门禁；
-- 46 个版本化场景、独立 deterministic/live JSON/HTML 自动评测报告；
+- 制度知识独立文档/版本/条款、治理角色发布、PostgreSQL GIN FTS + pgvector HNSW、RRF 融合、时态/租户过滤、版本化引用和 Policy-as-Code 一致性门禁；
+- 47 个版本化场景、独立 deterministic/live JSON/HTML 自动评测报告；
 - Makefile、Dockerfile、Compose 和环境变量模板。
 
 ## 2. 已执行验证
@@ -28,8 +28,8 @@
 | 验证 | 实际结果 |
 |---|---:|
 | Ruff | 通过 |
-| Python pytest | 109/109 通过 |
-| Phase 1 scenario eval | 46/46 通过 |
+| Python pytest | 111/111 通过 |
+| Phase 1 scenario eval | 47/47 通过 |
 | Veto failures | 0 |
 | Frontend ESLint | 通过 |
 | TypeScript + Vite production build | 通过 |
@@ -46,7 +46,7 @@ PostgreSQL 17 容器、Alembic 升级和数据库端到端采购闭环已经实�
 
 | 指标 | 结果 |
 |---|---:|
-| Task success rate | 100%（46/46） |
+| Task success rate | 100%（47/47） |
 | Product match precision（9 条 hard cases） | 100% |
 | Variant match precision（9 条 hard cases） | 100% |
 | Hard false merge count | 0 |
@@ -94,17 +94,17 @@ DeepSeek `deepseek-v4-flash` 使用同一套 Harness 和 fixture 工具连续运
 
 上述历史 live 报告只把 `WAITING_CONFIRMATION` 作为成功终点。现在代码已将预算拆为 `agent_read_tool_calls`、`workflow_read_tool_calls` 和带预留的 `commit_tool_calls`，总工具上限调为 21；`confirm()` 在进入 `REVALIDATING` 前预检 3 次状态迁移并预留 3 次 commit 调用，失败会释放余额并保持或恢复到 `WAITING_CONFIRMATION`。Live runner 也已继续执行确认并以 `DRAFT_CREATED`、草稿存在和 trajectory 通过为成功条件。fake live-shape 回归已证明 9 次 Agent 读取后仍可完成 `9 + 1 + 3 = 13` 次分阶段调用；更新后的 DeepSeek 真实模型闭环尚未重跑，因此不能把旧的 3/3 表述为草稿成功率。
 
-数据库验证使用 PostgreSQL 17：Alembic 可从空库升级到 `20260909_0005`；制度表、唯一/时态索引和 GIN FTS 索引已创建，并在临时 PostgreSQL 数据库执行了中文条款导入、发布、FTS 召回和跨租户隔离。采购数据库闭环仍执行 start -> confirm -> draft；跨租户读取、乐观锁和重复草稿身份继续由数据库约束。
+数据库验证使用 PostgreSQL 17 + pgvector 0.8.6：Alembic 可从空库升级到 `20260909_0006`；制度表、唯一/时态索引、GIN FTS 和 HNSW cosine 索引均已创建，并在临时 PostgreSQL 数据库执行了中文条款导入、发布、双路召回、RRF 排序和跨租户隔离。采购数据库闭环仍执行 start -> confirm -> draft；跨租户读取、乐观锁和重复草稿身份继续由数据库约束。
 
 ## 5. 尚未验证
 
 - 更大规模真实模型稳定性、长对话质量、Provider 账单与估算费用的一致性；
 - 真实商城/API、登录态、限流和数据漂移；
-- PostgreSQL 行级安全、生产连接池与监控；制度向量/RRF 检索、Temporal、Kafka 和自进化尚未实现；
+- PostgreSQL 行级安全、生产连接池与监控；真实语义 embedding、PDF/DOCX/OCR ingestion、Temporal、Kafka 和自进化尚未实现；
 - Docker 镜像运行；
 - 多浏览器和真实手机兼容性。
 
-因此简历可以写“完成确定性 fixture 闭环、DeepSeek Agent 受控工具链小样本验证、PostgreSQL、长期记忆和制度 FTS 首片、46 场景确定性评测”，不能写“生产级跨平台实时比价已上线”，也不能把小样本 live 或 100% fixture 分数表述为生产准确率。
+因此简历可以写“完成确定性 fixture 闭环、DeepSeek Agent 受控工具链小样本验证、PostgreSQL/pgvector、长期记忆和制度混合检索首片、47 场景确定性评测”，不能写“生产级跨平台实时比价已上线”，也不能把 5 条检索标注、小样本 live 或 100% fixture 分数表述为生产准确率。
 
 完整 P0 的逐条状态、证据和缺口见 `08-requirements-traceability.md`。独立 `procure-live-eval` 会把成功率、token、延迟、估算费用和轨迹结果写入 `evals/reports/live/`。熔断仍是单进程状态，checkpoint/cassette 也未完成；商品归一只覆盖 Fixture 笔记本表达。Fixture Session 只用于离线演示，生产环境仍需对接 OIDC/SSO。
 

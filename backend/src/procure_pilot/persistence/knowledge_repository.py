@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import delete, func, or_, select, update
@@ -12,12 +13,21 @@ from procure_pilot.domain.knowledge import (
     KnowledgeDocumentStatus,
     KnowledgeDocumentVersion,
     KnowledgeVersionStatus,
+    cosine_similarity,
 )
 from procure_pilot.persistence.models import (
     KnowledgeChunkRecord,
     KnowledgeDocumentRecord,
     KnowledgeDocumentVersionRecord,
 )
+
+
+@dataclass(frozen=True)
+class RankedKnowledgeChunk:
+    chunk: KnowledgeChunk
+    version: KnowledgeDocumentVersion
+    document: KnowledgeDocument
+    score: float
 
 
 class SqlAlchemyKnowledgeRepository:
@@ -237,6 +247,128 @@ class SqlAlchemyKnowledgeRepository:
             for chunk, version, document in rows
         ]
 
+    def search_fts(
+        self,
+        *,
+        tenant_id: str,
+        category_id: str,
+        as_of: datetime,
+        query_tokens: list[str],
+        limit: int,
+    ) -> list[RankedKnowledgeChunk]:
+        tokens = list(dict.fromkeys(query_tokens))
+        if not tokens:
+            return []
+        if self.engine.dialect.name != "postgresql":
+            rows = self.active_chunks(
+                tenant_id=tenant_id,
+                category_id=category_id,
+                as_of=as_of,
+                query_tokens=tokens,
+                limit=max(limit * 4, 50),
+            )
+            ranked = [
+                RankedKnowledgeChunk(
+                    chunk=chunk,
+                    version=version,
+                    document=document,
+                    score=len(set(tokens).intersection(chunk.search_text.split())) / len(tokens),
+                )
+                for chunk, version, document in rows
+            ]
+            return sorted(
+                ranked,
+                key=lambda item: (-item.score, item.document.document_key, item.chunk.ordinal),
+            )[:limit]
+
+        web_query = " OR ".join(f'"{token}"' for token in tokens)
+        search_vector = func.to_tsvector("simple", KnowledgeChunkRecord.search_text)
+        parsed_query = func.websearch_to_tsquery("simple", web_query)
+        score = func.ts_rank_cd(search_vector, parsed_query).label("fts_score")
+        statement = (
+            self._active_records_statement(
+                tenant_id=tenant_id,
+                category_id=category_id,
+                as_of=as_of,
+            )
+            .add_columns(score)
+            .where(search_vector.op("@@")(parsed_query))
+            .order_by(score.desc(), KnowledgeChunkRecord.ordinal)
+            .limit(limit)
+        )
+        with self.session_factory() as session:
+            rows = session.execute(statement).all()
+        return [
+            RankedKnowledgeChunk(
+                chunk=self._chunk_domain(chunk),
+                version=self._version_domain(version),
+                document=self._document_domain(document),
+                score=float(raw_score),
+            )
+            for chunk, version, document, raw_score in rows
+        ]
+
+    def search_vector(
+        self,
+        *,
+        tenant_id: str,
+        category_id: str,
+        as_of: datetime,
+        query_embedding: list[float],
+        embedding_model: str,
+        limit: int,
+    ) -> list[RankedKnowledgeChunk]:
+        if self.engine.dialect.name != "postgresql":
+            rows = self.active_chunks(
+                tenant_id=tenant_id,
+                category_id=category_id,
+                as_of=as_of,
+                limit=10_000,
+            )
+            ranked = [
+                RankedKnowledgeChunk(
+                    chunk=chunk,
+                    version=version,
+                    document=document,
+                    score=cosine_similarity(query_embedding, chunk.embedding),
+                )
+                for chunk, version, document in rows
+                if chunk.embedding is not None and chunk.embedding_model == embedding_model
+            ]
+            return sorted(
+                ranked,
+                key=lambda item: (-item.score, item.document.document_key, item.chunk.ordinal),
+            )[:limit]
+
+        distance = KnowledgeChunkRecord.embedding.cosine_distance(query_embedding).label(
+            "vector_distance"
+        )
+        statement = (
+            self._active_records_statement(
+                tenant_id=tenant_id,
+                category_id=category_id,
+                as_of=as_of,
+            )
+            .add_columns(distance)
+            .where(
+                KnowledgeChunkRecord.embedding.is_not(None),
+                KnowledgeChunkRecord.embedding_model == embedding_model,
+            )
+            .order_by(distance, KnowledgeChunkRecord.ordinal)
+            .limit(limit)
+        )
+        with self.session_factory() as session:
+            rows = session.execute(statement).all()
+        return [
+            RankedKnowledgeChunk(
+                chunk=self._chunk_domain(chunk),
+                version=self._version_domain(version),
+                document=self._document_domain(document),
+                score=max(-1.0, min(1.0, 1.0 - float(raw_distance))),
+            )
+            for chunk, version, document, raw_distance in rows
+        ]
+
     def has_published_documents(self, *, tenant_id: str, category_id: str) -> bool:
         with self.session_factory() as session:
             found = session.execute(
@@ -293,6 +425,31 @@ class SqlAlchemyKnowledgeRepository:
                     KnowledgeChunkRecord.tenant_id == tenant_id,
                 )
                 .values(search_text=value)
+            )
+            if result.rowcount != 1:
+                raise PermissionError("Knowledge chunk is not accessible in this tenant")
+
+    def replace_chunk_index(
+        self,
+        chunk_id: str,
+        *,
+        tenant_id: str,
+        search_text: str,
+        embedding: list[float],
+        embedding_model: str,
+    ) -> None:
+        with self.session_factory.begin() as session:
+            result = session.execute(
+                update(KnowledgeChunkRecord)
+                .where(
+                    KnowledgeChunkRecord.chunk_id == chunk_id,
+                    KnowledgeChunkRecord.tenant_id == tenant_id,
+                )
+                .values(
+                    search_text=search_text,
+                    embedding=embedding,
+                    embedding_model=embedding_model,
+                )
             )
             if result.rowcount != 1:
                 raise PermissionError("Knowledge chunk is not accessible in this tenant")
@@ -372,5 +529,38 @@ class SqlAlchemyKnowledgeRepository:
             content=record.content,
             content_hash=record.content_hash,
             search_text=record.search_text,
+            embedding=list(record.embedding) if record.embedding is not None else None,
+            embedding_model=record.embedding_model,
             created_at=record.created_at,
+        )
+
+    @staticmethod
+    def _active_records_statement(*, tenant_id: str, category_id: str, as_of: datetime):
+        return (
+            select(
+                KnowledgeChunkRecord,
+                KnowledgeDocumentVersionRecord,
+                KnowledgeDocumentRecord,
+            )
+            .join(
+                KnowledgeDocumentVersionRecord,
+                KnowledgeDocumentVersionRecord.version_id == KnowledgeChunkRecord.version_id,
+            )
+            .join(
+                KnowledgeDocumentRecord,
+                KnowledgeDocumentRecord.document_id == KnowledgeChunkRecord.document_id,
+            )
+            .where(
+                KnowledgeChunkRecord.tenant_id == tenant_id,
+                KnowledgeDocumentRecord.tenant_id == tenant_id,
+                KnowledgeDocumentVersionRecord.tenant_id == tenant_id,
+                KnowledgeDocumentRecord.category_id == category_id,
+                KnowledgeDocumentRecord.status == KnowledgeDocumentStatus.PUBLISHED.value,
+                KnowledgeDocumentVersionRecord.status == KnowledgeVersionStatus.PUBLISHED.value,
+                KnowledgeDocumentVersionRecord.effective_from <= as_of,
+                or_(
+                    KnowledgeDocumentVersionRecord.effective_to.is_(None),
+                    KnowledgeDocumentVersionRecord.effective_to > as_of,
+                ),
+            )
         )

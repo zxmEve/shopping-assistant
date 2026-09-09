@@ -61,6 +61,7 @@ from procure_pilot.services.memory_registry import MemoryRegistry
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCENARIO_FILE = PROJECT_ROOT / "evals" / "scenarios" / "phase1.json"
+RETRIEVAL_LABEL_FILE = PROJECT_ROOT / "evals" / "datasets" / "policy_retrieval.json"
 REPORT_DIR = PROJECT_ROOT / "evals" / "reports"
 LATEST_REPORT = REPORT_DIR / "latest.json"
 
@@ -1115,6 +1116,62 @@ async def check_knowledge_004() -> tuple[bool, str]:
         return passed, f"state={response.run.state}, policy_citations={len(citations)}"
 
 
+async def check_knowledge_005() -> tuple[bool, str]:
+    labels = json.loads(RETRIEVAL_LABEL_FILE.read_text(encoding="utf-8"))
+    with TemporaryDirectory() as directory:
+        service = _knowledge_service(directory)
+        _publish_eval_policy(service)
+        reciprocal_ranks: list[float] = []
+        relevant_hits = 0
+        relevant_queries = 0
+        no_answer_correct = 0
+        no_answer_queries = 0
+        hybrid_signal_queries = 0
+        for item in labels:
+            result = service.search(
+                tenant_id="demo_cn",
+                category_id="CAT-COMPUTER-LAPTOP",
+                query=item["query"],
+                limit=3,
+            )
+            relevant = set(item["relevant_clause_refs"])
+            if not relevant:
+                no_answer_queries += 1
+                no_answer_correct += int(not result.citations)
+                continue
+            relevant_queries += 1
+            ranks = [
+                rank
+                for rank, citation in enumerate(result.citations, start=1)
+                if citation.clause_ref in relevant
+            ]
+            if ranks:
+                relevant_hits += 1
+                reciprocal_ranks.append(1.0 / ranks[0])
+            else:
+                reciprocal_ranks.append(0.0)
+            hybrid_signal_queries += int(
+                any(
+                    {"fts", "vector"}.issubset(citation.retrieval_channels)
+                    for citation in result.citations
+                )
+            )
+        metrics = {
+            "hit_at_3": round(relevant_hits / max(1, relevant_queries), 4),
+            "mrr": round(sum(reciprocal_ranks) / max(1, relevant_queries), 4),
+            "no_answer_accuracy": round(no_answer_correct / max(1, no_answer_queries), 4),
+            "hybrid_signal_rate": round(
+                hybrid_signal_queries / max(1, relevant_queries), 4
+            ),
+            "labeled_queries": len(labels),
+        }
+        passed = all(
+            metrics[key] == 1.0
+            for key in ("hit_at_3", "mrr", "no_answer_accuracy", "hybrid_signal_rate")
+        )
+        return passed, json.dumps(metrics, ensure_ascii=False, sort_keys=True)
+
+
 async def check_replay_001() -> tuple[bool, str]:
     first = await _start(make_engine())
     second = await _start(make_engine())
@@ -1179,6 +1236,7 @@ CHECKS: dict[str, Callable[[], Awaitable[tuple[bool, str]]]] = {
     "knowledge-002": check_knowledge_002,
     "knowledge-003": check_knowledge_003,
     "knowledge-004": check_knowledge_004,
+    "knowledge-005": check_knowledge_005,
     "replay-001": check_replay_001,
 }
 
@@ -1239,9 +1297,21 @@ async def run_evaluation() -> dict:
         "knowledge-002",
         "knowledge-003",
         "knowledge-004",
+        "knowledge-005",
         "replay-001",
     }
     match_metrics = grade_catalog_matching()
+    retrieval_case = next(item for item in results if item.case_id == "knowledge-005")
+    try:
+        retrieval_metrics = json.loads(retrieval_case.actual)
+    except (TypeError, json.JSONDecodeError):
+        retrieval_metrics = {
+            "hit_at_3": 0.0,
+            "mrr": 0.0,
+            "no_answer_accuracy": 0.0,
+            "hybrid_signal_rate": 0.0,
+            "labeled_queries": 0,
+        }
     report = {
         "status": "passed" if passed == len(results) else "failed",
         "generated_at": datetime.now(UTC).isoformat(),
@@ -1356,6 +1426,11 @@ async def run_evaluation() -> dict:
             "knowledge_engine_grounding_pass_rate": 1.0
             if next(item for item in results if item.case_id == "knowledge-004").passed
             else 0.0,
+            "knowledge_retrieval_hit_at_3": retrieval_metrics["hit_at_3"],
+            "knowledge_retrieval_mrr": retrieval_metrics["mrr"],
+            "knowledge_no_answer_accuracy": retrieval_metrics["no_answer_accuracy"],
+            "knowledge_hybrid_signal_rate": retrieval_metrics["hybrid_signal_rate"],
+            "knowledge_labeled_query_count": retrieval_metrics["labeled_queries"],
         },
         "results": [asdict(result) for result in results],
     }

@@ -332,6 +332,8 @@ flowchart LR
 
 交付 Profile/Team/Episodic/Semantic memory、consent/edit/delete、memory audit，以及 pgvector + FTS + RRF。退出条件是记忆和制度检索不越租户、可删除、可追溯且过期制度不能参与最终判断。
 
+当前结果：长期记忆授权、Context、Registry、候选确认已完成；制度知识已完成版本化发布、GIN FTS、`vector(256)`、HNSW cosine、RRF/确定性重排、向量降级和条款级标注评测的最小纵向切片。真实语义 embedding、文件 ingestion 和大规模 holdout 仍待完成。
+
 ### Phase 5：工程可靠性增强
 
 交付 checkpoint/resume/cancel、完整 cassette replay、跨进程熔断、Outbox，必要时再引入 Temporal。退出条件是进程和外部依赖故障可恢复，离线轨迹能够稳定复现。

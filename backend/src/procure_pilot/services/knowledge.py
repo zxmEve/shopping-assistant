@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 import unicodedata
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 
 from pydantic import BaseModel
 
 from procure_pilot.domain.knowledge import (
+    KNOWLEDGE_EMBEDDING_DIMENSIONS,
     KnowledgeChunk,
     KnowledgeCitation,
     KnowledgeDocument,
@@ -21,8 +24,12 @@ from procure_pilot.domain.knowledge import (
 )
 from procure_pilot.domain.models import utc_now
 from procure_pilot.persistence.knowledge_repository import SqlAlchemyKnowledgeRepository
+from procure_pilot.services.embeddings import EmbeddingProvider, HashingEmbeddingProvider
 
 KNOWLEDGE_WRITE_ROLES = frozenset({"ADMIN", "KNOWLEDGE_STEWARD", "PROCUREMENT_SPECIALIST"})
+RRF_K = 60
+VECTOR_RELEVANCE_THRESHOLD = 0.72
+logger = logging.getLogger(__name__)
 _HEADING_RE = re.compile(
     r"^(?:#{1,6}\s+|第[一二三四五六七八九十百千0-9]+[编章节条]|"
     r"[0-9]+(?:\.[0-9]+)*[、.．]\s*|[（(][一二三四五六七八九十0-9]+[）)])"
@@ -44,6 +51,26 @@ class KnowledgeIngestResult(BaseModel):
     document: KnowledgeDocument
     version: KnowledgeDocumentVersion
     chunk_count: int
+
+
+@dataclass
+class _HybridCandidate:
+    chunk: KnowledgeChunk
+    version: KnowledgeDocumentVersion
+    document: KnowledgeDocument
+    fts_rank: int | None = None
+    fts_score: float = 0.0
+    vector_rank: int | None = None
+    vector_similarity: float | None = None
+
+    @property
+    def rrf_score(self) -> float:
+        score = 0.0
+        if self.fts_rank is not None:
+            score += 1.0 / (RRF_K + self.fts_rank)
+        if self.vector_rank is not None:
+            score += 1.0 / (RRF_K + self.vector_rank)
+        return score
 
 
 def clean_policy_text(raw_content: str) -> str:
@@ -138,8 +165,19 @@ def split_policy_document(
 
 
 class PolicyKnowledgeService:
-    def __init__(self, repository: SqlAlchemyKnowledgeRepository) -> None:
+    def __init__(
+        self,
+        repository: SqlAlchemyKnowledgeRepository,
+        *,
+        embedding_provider: EmbeddingProvider | None = None,
+    ) -> None:
         self.repository = repository
+        self.embedding_provider = embedding_provider or HashingEmbeddingProvider()
+        if self.embedding_provider.dimensions != KNOWLEDGE_EMBEDDING_DIMENSIONS:
+            raise ValueError(
+                "Embedding provider dimensions must match the knowledge vector schema "
+                f"({KNOWLEDGE_EMBEDDING_DIMENSIONS})"
+            )
 
     def ingest(
         self,
@@ -192,6 +230,16 @@ class PolicyKnowledgeService:
             created_at=now,
         )
         split = split_policy_document(cleaned)
+        chunk_values = [
+            (heading, clause_ref, content)
+            for heading, clause_ref, content in split
+        ]
+        embedding_inputs = [f"{title}\n{heading}\n{content}" for heading, _, content in chunk_values]
+        embeddings = self.embedding_provider.embed(embedding_inputs)
+        if len(embeddings) != len(chunk_values) or any(
+            len(value) != self.embedding_provider.dimensions for value in embeddings
+        ):
+            raise ValueError("Embedding provider returned an invalid batch shape")
         chunks = [
             KnowledgeChunk(
                 chunk_id=f"kchunk_{uuid4().hex[:20]}",
@@ -204,9 +252,13 @@ class PolicyKnowledgeService:
                 content=content,
                 content_hash=hashlib.sha256(content.encode("utf-8")).hexdigest(),
                 search_text=build_search_text(title, heading, content),
+                embedding=embedding,
+                embedding_model=self.embedding_provider.model,
                 created_at=now,
             )
-            for ordinal, (heading, clause_ref, content) in enumerate(split)
+            for ordinal, ((heading, clause_ref, content), embedding) in enumerate(
+                zip(chunk_values, embeddings, strict=True)
+            )
         ]
         saved_document, saved_version = self.repository.create_draft(document, version, chunks)
         return KnowledgeIngestResult(
@@ -252,57 +304,137 @@ class PolicyKnowledgeService:
                 as_of=resolved_at,
                 category_id=category_id,
             )
-        rows = self.repository.active_chunks(
+        candidate_limit = max(20, limit * 4)
+        fts_hits = self.repository.search_fts(
             tenant_id=tenant_id,
             category_id=category_id,
             as_of=resolved_at,
             query_tokens=query_terms,
+            limit=candidate_limit,
         )
+        degraded_channels: list[str] = []
+        try:
+            embedded = self.embedding_provider.embed([query])
+            if len(embedded) != 1 or len(embedded[0]) != self.embedding_provider.dimensions:
+                raise ValueError("Embedding provider returned an invalid query shape")
+            vector_hits = self.repository.search_vector(
+                tenant_id=tenant_id,
+                category_id=category_id,
+                as_of=resolved_at,
+                query_embedding=embedded[0],
+                embedding_model=self.embedding_provider.model,
+                limit=candidate_limit,
+            )
+        except Exception as exc:  # FTS remains available if vector retrieval is degraded.
+            logger.warning("Vector knowledge retrieval degraded: %s", type(exc).__name__)
+            vector_hits = []
+            degraded_channels.append("vector")
+
+        candidates: dict[str, _HybridCandidate] = {}
+        for rank, hit in enumerate(fts_hits, start=1):
+            candidates[hit.chunk.chunk_id] = _HybridCandidate(
+                chunk=hit.chunk,
+                version=hit.version,
+                document=hit.document,
+                fts_rank=rank,
+                fts_score=hit.score,
+            )
+        for rank, hit in enumerate(vector_hits, start=1):
+            candidate = candidates.setdefault(
+                hit.chunk.chunk_id,
+                _HybridCandidate(
+                    chunk=hit.chunk,
+                    version=hit.version,
+                    document=hit.document,
+                ),
+            )
+            candidate.vector_rank = rank
+            candidate.vector_similarity = hit.score
+
         query_set = set(query_terms)
-        scored: list[tuple[float, KnowledgeChunk, KnowledgeDocumentVersion, KnowledgeDocument]] = []
-        for chunk, version, document in rows:
+        scored: list[tuple[float, _HybridCandidate]] = []
+        for candidate in candidates.values():
+            chunk = candidate.chunk
             # The title is indexed for recall, but a citation must also match the
             # actual heading/body so a generic document title cannot ground every clause.
             chunk_terms = set(lexical_terms(f"{chunk.heading} {chunk.content}"))
             overlap = query_set.intersection(chunk_terms)
-            if not overlap:
-                continue
             strong_overlap = {term for term in overlap if len(term) >= 2}
-            if not strong_overlap and len(overlap) < 2:
+            lexical_relevant = bool(strong_overlap) or len(overlap) >= 2
+            semantic_relevant = (
+                candidate.vector_similarity or 0.0
+            ) >= VECTOR_RELEVANCE_THRESHOLD
+            if not lexical_relevant and not semantic_relevant:
                 continue
             coverage = len(overlap) / len(query_set)
             specificity = len(overlap) / max(1, len(chunk_terms))
             heading_bonus = (
                 0.1 if strong_overlap.intersection(lexical_terms(chunk.heading)) else 0.0
             )
-            score = round(coverage * 0.8 + specificity * 0.2 + heading_bonus, 6)
-            # One coincidental CJK character is not enough to ground a policy answer.
-            if score >= 0.1:
-                scored.append((score, chunk, version, document))
-        scored.sort(key=lambda item: (-item[0], item[2].version, item[1].ordinal))
+            lexical_score = min(1.0, coverage * 0.8 + specificity * 0.2 + heading_bonus)
+            max_rrf = 2.0 / (RRF_K + 1)
+            normalized_rrf = candidate.rrf_score / max_rrf
+            semantic_score = max(0.0, candidate.vector_similarity or 0.0)
+            rerank_score = round(
+                normalized_rrf * 0.55 + lexical_score * 0.30 + semantic_score * 0.15,
+                6,
+            )
+            scored.append((rerank_score, candidate))
+        scored.sort(
+            key=lambda item: (
+                -item[0],
+                -item[1].rrf_score,
+                item[1].version.version,
+                item[1].chunk.ordinal,
+            )
+        )
         citations = [
             KnowledgeCitation(
-                chunk_id=chunk.chunk_id,
-                document_id=document.document_id,
-                document_key=document.document_key,
-                document_title=document.title,
-                document_version=version.version,
-                policy_version=version.policy_version,
-                heading=chunk.heading,
-                clause_ref=chunk.clause_ref,
-                excerpt=chunk.content[:320],
-                source_uri=document.source_uri,
+                chunk_id=candidate.chunk.chunk_id,
+                document_id=candidate.document.document_id,
+                document_key=candidate.document.document_key,
+                document_title=candidate.document.title,
+                document_version=candidate.version.version,
+                policy_version=candidate.version.policy_version,
+                heading=candidate.chunk.heading,
+                clause_ref=candidate.chunk.clause_ref,
+                excerpt=candidate.chunk.content[:320],
+                source_uri=candidate.document.source_uri,
                 source_ref=(
-                    f"knowledge://{document.document_key}/v{version.version}/chunks/{chunk.chunk_id}"
+                    f"knowledge://{candidate.document.document_key}/v"
+                    f"{candidate.version.version}/chunks/{candidate.chunk.chunk_id}"
                 ),
-                score=score,
+                score=rerank_score,
+                fts_rank=candidate.fts_rank,
+                fts_score=(round(candidate.fts_score, 6) if candidate.fts_rank else None),
+                vector_rank=candidate.vector_rank,
+                rrf_score=round(candidate.rrf_score, 8),
+                rerank_score=rerank_score,
+                vector_similarity=(
+                    round(candidate.vector_similarity, 6)
+                    if candidate.vector_similarity is not None
+                    else None
+                ),
+                retrieval_channels=[
+                    channel
+                    for channel, rank in (
+                        ("fts", candidate.fts_rank),
+                        ("vector", candidate.vector_rank),
+                    )
+                    if rank is not None
+                ],
             )
-            for score, chunk, version, document in scored[:limit]
+            for rerank_score, candidate in scored[:limit]
         ]
         return KnowledgeSearchResult(
             query=query,
             as_of=resolved_at,
             category_id=category_id,
+            retrieval_mode="hybrid_rrf" if vector_hits else "fts_only",
+            embedding_model=self.embedding_provider.model,
+            fts_candidate_count=len(fts_hits),
+            vector_candidate_count=len(vector_hits),
+            degraded_channels=degraded_channels,
             citations=citations,
         )
 
@@ -380,11 +512,22 @@ class PolicyKnowledgeService:
             as_of=as_of or utc_now(),
             limit=10_000,
         )
-        for chunk, _, document in rows:
-            self.repository.replace_chunk_search_text(
+        embedding_inputs = [
+            f"{document.title}\n{chunk.heading}\n{chunk.content}"
+            for chunk, _, document in rows
+        ]
+        embeddings = self.embedding_provider.embed(embedding_inputs)
+        if len(embeddings) != len(rows) or any(
+            len(value) != self.embedding_provider.dimensions for value in embeddings
+        ):
+            raise ValueError("Embedding provider returned an invalid reindex batch shape")
+        for (chunk, _, document), embedding in zip(rows, embeddings, strict=True):
+            self.repository.replace_chunk_index(
                 chunk.chunk_id,
                 tenant_id=tenant_id,
-                value=build_search_text(document.title, chunk.heading, chunk.content),
+                search_text=build_search_text(document.title, chunk.heading, chunk.content),
+                embedding=embedding,
+                embedding_model=self.embedding_provider.model,
             )
         return len(rows)
 
