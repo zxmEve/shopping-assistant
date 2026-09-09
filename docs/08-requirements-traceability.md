@@ -1,6 +1,6 @@
 # P0 需求追踪矩阵
 
-更新时间：2026-09-05。
+更新时间：2026-09-09。
 
 本文档是 `03-product-requirements.md` 与实际代码、测试、演示之间的追踪入口。状态只表示当前仓库中的事实，不表示路线图目标。
 
@@ -22,7 +22,7 @@
 |---|---|---|---|
 | IAM-01 | VERIFIED | 服务端 Fixture Session 将 opaque token 映射到 tenant/user，企业 Gateway 解析组织信息；测试证明伪造身份/成本中心 Header 不生效 | 生产环境仍需替换为 OIDC/SSO adapter |
 | IAM-02 | VERIFIED | Run Repository 的 SQL 查询强制 tenant/user 条件；真实 PostgreSQL 与自动化测试证明跨租户得到同一种拒绝结果 | 生产环境后续增加 PostgreSQL RLS 作为第二道边界 |
-| IAM-03 | VERIFIED | 版本化 Tool Registry 同时控制 API 和 5 个 Agents SDK function tools；未知工具默认拒绝，Agent 工具中没有草稿、审批、下单和支付 | 无；后续新增工具必须继续复用 Registry |
+| IAM-03 | VERIFIED | 版本化 Tool Registry 同时控制 API 和两个 Agent 的 function tools；未知工具默认拒绝，Agent 工具中没有草稿、审批、下单和支付 | 无；后续新增工具必须继续复用 Registry |
 | REQ-01 | IMPLEMENTED | Pydantic Requirement 与中文规则抽取 | 品类和币种基本固定；缺完整 JSON Schema/领域 invariant 场景 |
 | REQ-02 | VERIFIED | 多轮增量合并保留已有字段；每轮 Planner 接收当前 Run 的完整用户/助手消息并记录 message_count | 真实模型仍需验证长对话质量与压缩策略 |
 | REQ-03 | IMPLEMENTED | 显式信息价值对预算、数量、规格、交付地和税口径排序，场景验证高价值字段优先 | 仍需扩展标注集并计算 required-question recall 与 unnecessary-question rate |
@@ -40,7 +40,7 @@
 | COST-02 | IMPLEMENTED | API 区分税、运费、条件优惠和无条件总价 | UI 未完整展示明细、条件与风险 |
 | COST-03 | IMPLEMENTED | 代码支持含税/未税计算 | 缺同一报价双口径 golden test |
 | GOV-01 | VERIFIED | 预算由企业 Gateway 查询，Agent 无法覆盖 | 无 |
-| GOV-02 | IMPLEMENTED | Policy ID/version 作为 evidence ref | 缺生效时间和逐结论证据对象 |
+| GOV-02 | IMPLEMENTED | Policy ID/version 作为规则 evidence ref；独立制度文档按版本、生效期和条款切块，FTS 引用通过版本一致性检查后进入 Candidate evidence | 缺逐结论引用映射、向量/RRF 检索和真实制度引用准确率标注集 |
 | GOV-03 | VERIFIED | 确定性 rule evaluator 产生最终政策决定 | 无 |
 | GOV-04 | IMPLEMENTED | 支持供应商准入和发票能力 | 缺地区状态和对应测试 |
 | GOV-05 | IMPLEMENTED | 金额阈值和供应商例外改变审批路径 | 缺审批路由版本 |
@@ -68,7 +68,8 @@
 | 网页 Prompt Injection | VERIFIED | Fixture 中包含注入文本，不能触发写入 |
 | 多来源失败与草稿超时恢复 | IMPLEMENTED | 仅单来源 429/timeout 部分成功 |
 | 价格变化与旧卡片重放 | VERIFIED | `quote_price_changed` 场景和自动化测试覆盖变化、二次确认、旧 Token 拒绝 |
-| 39 个版本化场景 | VERIFIED | Agent Runtime 覆盖工具与轨迹；数据库覆盖回写、租户隔离与乐观锁；长期记忆覆盖个人/团队边界、修改/删除和审计 |
+| 46 个版本化场景 | VERIFIED | Agent Runtime 覆盖工具与轨迹；数据库覆盖回写、租户隔离与乐观锁；长期记忆覆盖个人/团队边界、生命周期和候选确认安全；制度知识覆盖引用、时态/租户过滤、版本冲突和 Engine grounding |
+| 制度知识检索与引用 | IMPLEMENTED | 治理角色导入/发布，PostgreSQL GIN FTS，tenant/category/effective 过滤，推荐和确认前 Policy 版本校验，无答案或冲突安全停止 | pgvector/RRF、PDF/DOCX ingestion、逐结论 citation grader 和管理 UI 待完成 |
 | 完整 trajectory cassette | PLANNED | 当前只比较确定性结果投影 |
 | CI veto gate | VERIFIED | 独立 workflow 执行 Ruff、pytest、scenario eval 和前端构建，并上传评测报告 |
 | 质量/安全/性能/成本报告 | IMPLEMENTED | deterministic 与 live 报告隔离；DeepSeek 3/3 live 基线包含成功率、token、延迟、trajectory 和版本化价格估算 | 样本过小，费用尚未与 Provider 账单核对 |
@@ -77,6 +78,6 @@
 
 当前版本可以描述为：
 
-> 确定性核心闭环通过 39 个 fixture 场景；双 Agent Runtime 已通过 fixture 测试，能够证明路由、并行、权限、预算、陈旧结果拒绝、回退和完整草稿闭环。双 Agent DeepSeek 12-case × 1 smoke 已完成；历史单总控报告只作为旧架构记录。
+> 确定性核心闭环通过 46 个 fixture 场景；双 Agent Runtime 已通过 fixture 测试，能够证明路由、并行、权限、预算、陈旧结果拒绝、回退和完整草稿闭环。双 Agent DeepSeek 12-case × 1 smoke 已完成；历史单总控报告只作为旧架构记录。
 
-长期记忆授权 CRUD、M2.1 Agent Context 和 M2.2 结构化 Registry/Consent 均已完成；双 Agent DeepSeek 12-case × 1 smoke 为 12/12。下一步实现记忆候选确认闭环，再用 pgvector + 全文检索实现带证据的制度 RAG；发布前补齐双 Agent ×3 稳定性矩阵。
+长期记忆授权 CRUD、Agent Context、结构化 Registry/Consent、候选确认和制度 FTS 最小纵向切片均已完成；后端回归 109/109，确定性评测 46/46，双 Agent DeepSeek 12-case × 1 smoke 为 12/12。下一步实现 pgvector + RRF 混合检索和检索标注集；发布前补齐双 Agent ×3 稳定性矩阵。

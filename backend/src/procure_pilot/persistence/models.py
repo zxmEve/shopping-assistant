@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -173,4 +174,143 @@ class MemoryAuditRecord(Base):
     action: Mapped[str] = mapped_column(String(32), nullable=False)
     before: Mapped[dict[str, Any] | None] = mapped_column(JSON_DOCUMENT)
     after: Mapped[dict[str, Any] | None] = mapped_column(JSON_DOCUMENT)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class MemoryCandidateRecord(Base):
+    __tablename__ = "memory_candidates"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "owner_user_id",
+            "origin_run_id",
+            "proposal_fingerprint",
+            name="uq_memory_candidates_run_proposal",
+        ),
+        Index(
+            "ix_memory_candidates_owner_status",
+            "tenant_id",
+            "owner_user_id",
+            "status",
+            "expires_at",
+        ),
+        Index("ix_memory_candidates_origin_run", "tenant_id", "origin_run_id"),
+    )
+
+    candidate_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    owner_user_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    origin_run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    scope: Mapped[str] = mapped_column(String(32), nullable=False)
+    memory_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    key_definition_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    category_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    proposed_content: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_value_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    tags: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, nullable=False, default=list)
+    source_message_refs: Mapped[list[str]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    source_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    proposal_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    dedup_target_memory_id: Mapped[str | None] = mapped_column(String(64))
+    conflict_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_memory_id: Mapped[str | None] = mapped_column(String(64))
+    resolution_request_id: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class KnowledgeDocumentRecord(Base):
+    __tablename__ = "knowledge_documents"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "document_key", name="uq_knowledge_documents_tenant_key"),
+        Index(
+            "ix_knowledge_documents_tenant_category_status",
+            "tenant_id",
+            "category_id",
+            "status",
+        ),
+    )
+
+    document_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    document_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    category_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_uri: Mapped[str] = mapped_column(String(1024), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class KnowledgeDocumentVersionRecord(Base):
+    __tablename__ = "knowledge_document_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "document_id",
+            "version",
+            name="uq_knowledge_versions_tenant_document_version",
+        ),
+        Index(
+            "ix_knowledge_versions_effective",
+            "tenant_id",
+            "status",
+            "effective_from",
+            "effective_to",
+            "policy_version",
+        ),
+    )
+
+    version_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_documents.document_id", ondelete="CASCADE"), nullable=False
+    )
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    raw_content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class KnowledgeChunkRecord(Base):
+    __tablename__ = "knowledge_chunks"
+    __table_args__ = (
+        UniqueConstraint("version_id", "ordinal", name="uq_knowledge_chunks_version_ordinal"),
+        Index(
+            "ix_knowledge_chunks_tenant_document_version",
+            "tenant_id",
+            "document_id",
+            "version_id",
+        ),
+        Index(
+            "ix_knowledge_chunks_search_fts",
+            text("to_tsvector('simple', search_text)"),
+            postgresql_using="gin",
+        ).ddl_if(dialect="postgresql"),
+    )
+
+    chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    version_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_document_versions.version_id", ondelete="CASCADE"), nullable=False
+    )
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_documents.document_id", ondelete="CASCADE"), nullable=False
+    )
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    heading: Mapped[str] = mapped_column(String(512), nullable=False)
+    clause_ref: Mapped[str | None] = mapped_column(String(128))
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    search_text: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

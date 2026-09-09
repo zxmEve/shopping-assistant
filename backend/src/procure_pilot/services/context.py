@@ -164,8 +164,7 @@ class ContextAssembler:
             run.messages[-rule.max_recent_messages :] if rule.max_recent_messages else []
         )
         recent_messages = [
-            ContextMessage(role=item.role, content=item.content)
-            for item in message_window
+            ContextMessage(role=item.role, content=item.content) for item in message_window
         ]
         initial_message_count = len(recent_messages)
         memories = (

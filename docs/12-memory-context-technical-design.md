@@ -1,8 +1,8 @@
 # 记忆、上下文与知识检索模块技术设计
 
-> 版本：v1.2
-> 日期：2026-09-08
-> 状态：M2.1、M2.2 已实现；M2.3 和 M3 为目标设计
+> 版本：v1.3
+> 日期：2026-09-09
+> 状态：M2.1、M2.2、M2.3 和 M3 FTS 最小纵向切片已实现；混合检索仍为目标设计
 > 适用组件：Long-term Memory、ContextAssembler、Requirement Agent、Sourcing Agent、Knowledge Base/RAG
 
 ## 1. 文档目的
@@ -41,13 +41,19 @@
 - 已增加定义版本、稳定品类 ID、正式 Tag ID、有效期、置信度和 metadata；
 - Consent 与记忆在同一事务写入，重复请求由请求 ID 和命令指纹保护；
 - 普通员工不能写 TEAM 记忆；新确认值会将旧值标记为 `SUPERSEDED`；
-- 已完成上下文和 Registry 专项测试，总后端回归为 96/96。
+- 已完成上下文、Registry、候选确认和制度 FTS 专项测试，总后端回归为 109/109。
+- 已建立独立 Knowledge Document/Version/Chunk 表和 Alembic `20260909_0005`；
+- 已实现原文哈希、页码噪声清理、标题/编号条款优先切块和 CJK unigram/bigram 索引文本；
+- 已实现治理角色导入/发布/重建索引 API，以及 tenant/category/effective/version 过滤；
+- PostgreSQL 使用 `to_tsvector('simple', search_text)` GIN 索引，SQLite 提供测试兼容路径；
+- 检索返回条款级版本化引用，Engine 在推荐与确认前校验引用版本与 Policy-as-Code；
+- 已发布知识库无答案、无有效版本或版本冲突时安全停止；未启用知识库的租户兼容既有规则引用。
 
 ### 2.2 当前尚未实现
 
-- 没有“提取候选—用户确认—写入”的流程；
-- 没有向量/全文召回；
-- 没有独立的制度知识库和 RAG ingestion；
+- 没有向量召回、RRF 混合排序和 cross-encoder rerank；
+- 没有 PDF/DOCX、复杂表格和扫描件 OCR ingestion；
+- 没有真实制度标注集上的 Recall@K、MRR、citation precision/recall 基线；
 - 没有物理清除、缓存/向量副本删除和保留期任务；
 - Registry 当前是受版本控制的 YAML，还没有接企业 PIM/ERP 同步表；Tag 当前保存为正式 ID 数组，尚未拆成关联表。
 
@@ -185,15 +191,16 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    DONE[Run 到达安全终态] --> PICK[选择用户明确偏好、纠正和最终取舍]
+    DONE[Run 到达 DRAFT_CREATED] --> PICK[只选择用户明确的长期偏好或纠正]
     PICK --> EXTRACT[结构化候选提取]
     EXTRACT --> VALIDATE[Key Registry / Schema / PII / 来源验证]
     VALIDATE --> DEDUP[与现有记忆去重和冲突比较]
     DEDUP --> CAND[保存为 PENDING Candidate]
-    CAND --> SHOW[向用户展示原值、候选值和来源]
+    CAND --> SHOW[向用户展示候选值、是否替换和来源]
     SHOW -->|拒绝| REJECT[标记 REJECTED，不写长期记忆]
     SHOW -->|确认| WRITE[写 consent + memory/version + audit]
-    WRITE --> ACTIVE[ACTIVE，可在未来召回]
+    WRITE --> RESOLVE[Candidate 标记 ACCEPTED]
+    RESOLVE --> ACTIVE[ACTIVE，可在未来召回]
 ```
 
 候选提取器是受 Schema 约束的模型调用或规则服务，不是拥有写权限的第三个 Agent。
@@ -388,12 +395,13 @@ candidate_id
 tenant_id
 owner_user_id
 origin_run_id
+scope                       当前自动提取固定为 PROFILE
 memory_key
 key_definition_version
 category_id
 proposed_content
 proposed_value_json
-source_message_ids
+source_message_refs
 source_ref
 confidence
 dedup_target_memory_id
@@ -846,29 +854,12 @@ def pack_context(fixed, optional, max_tokens):
 
 ```python
 async def propose_memories_from_run(run, identity):
-    if run.state not in SAFE_TERMINAL_STATES:
-        return []
+    assert run.state == DRAFT_CREATED
 
-    evidence = select_memory_worthy_evidence(
-        messages=run.messages,
-        include=[
-            "explicit_preference",
-            "user_correction",
-            "accepted_tradeoff",
-            "repeated_preference",
-        ],
-        exclude=[
-            "model_suggestion",
-            "live_price",
-            "live_budget",
-            "credential",
-            "unconfirmed_inference",
-        ],
-    )
-
-    proposals = await structured_extractor.extract(
-        evidence,
-        output_schema=MemoryCandidateBatch,
+    # 第一版只读 user 消息，只接受“以后/默认/记住”等明确长期表达。
+    # 助手建议、“这次”要求和含凭证/PII 的句子直接跳过。
+    proposals = conservative_extractor.extract(
+        user_messages=run.messages,
         allowed_keys=key_registry.active_keys(),
     )
 
@@ -878,6 +869,9 @@ async def propose_memories_from_run(run, identity):
         definition = key_registry.validate_value(proposal.key, proposal.value_json)
         pii_scanner.reject_forbidden_content(proposal)
         comparison = compare_with_existing_memory(proposal, identity)
+
+        if comparison.is_exact_duplicate:
+            continue
 
         accepted_candidates.append(
             candidate_repository.create_pending(
@@ -890,6 +884,8 @@ async def propose_memories_from_run(run, identity):
     return accepted_candidates
 ```
 
+未来若增加模型提取器，只替换 `conservative_extractor` 的实现。模型仍然只能返回受 Schema 约束的 proposal，后续来源、PII、Registry、重复、冲突和用户确认步骤保持不变。
+
 ### 13.6 用户确认候选
 
 ```python
@@ -898,12 +894,18 @@ def accept_memory_candidate(candidate_id, identity, confirmation, request_id):
     assert candidate.owner_user_id == identity.user_id
     assert candidate.status == "PENDING"
     assert candidate.expires_at > clock.now()
+    assert confirmation.displayed_text == candidate.proposed_content
+
+    current = find_active_memory(candidate.key, candidate.category_id, identity)
+    assert optional_id(current) == candidate.dedup_target_memory_id
 
     definition = key_registry.validate_value(
         candidate.memory_key,
         candidate.proposed_value_json,
     )
     authorize_scope_write(identity, candidate.scope, definition)
+    assert confirmation.displayed_text == candidate.proposed_content
+    assert current_target_memory_id(candidate) == candidate.dedup_target_memory_id
 
     with transaction():
         consent = consent_repository.create_idempotent(
@@ -990,12 +992,18 @@ GET    /api/memory-tags
 GET    /api/memories/{id}/consent
 ```
 
-M2.3 及之后目标增加：
+M2.3 已增加：
 
 ```text
 GET    /api/memory-candidates
+POST   /api/runs/{run_id}/memory-candidates
 POST   /api/memory-candidates/{id}/accept
 POST   /api/memory-candidates/{id}/reject
+```
+
+M3 及之后目标增加：
+
+```text
 POST   /api/memories/{id}/revoke-consent
 GET    /api/runs/{run_id}/context-usages
 
@@ -1139,20 +1147,35 @@ M2.2 已补充 `effective_at` 和 `expires_at`；当前 Repository 与 ContextAs
 
 ### M2.3：记忆候选闭环
 
-1. 从安全终态 Run 选择证据；
-2. 结构化提取候选；
-3. PII、Schema、来源和重复校验；
-4. 用户接受/拒绝 UI 与 API；
-5. 幂等写入、撤回和清除。
+状态：**已完成最小纵向切片（2026-09-08）**。
 
-### M3：独立知识库与制度 RAG
+1. 只从 `DRAFT_CREATED` Run 的用户消息选择可引用证据；
+2. 通过保守确定性提取器识别明确长期意图，不把“这次”需求或助手建议升级为记忆；
+3. 执行凭证/PII、Registry Schema、来源、重复和冲突校验；
+4. 候选独立保存，14 天过期，未接受前不进入 Agent Context；
+5. 用户可在 API/UI 接受或拒绝；接受后复用 Consent、幂等和版本替代；
+6. 候选生成和处理只向 Run Trace 写入 ID、Key、Scope 和状态，不复制个人正文；
+7. migration `20260908_0004` 已在真实 PostgreSQL 17 应用并检查表结构和唯一索引。
 
-1. 建 Knowledge Document/Version/Chunk；
+实现位置：
+
+- `backend/src/procure_pilot/services/memory_candidates.py`：安全终态检查、保守提取、敏感信息过滤、去重、接受和拒绝编排；
+- `backend/src/procure_pilot/persistence/memory_candidate_repository.py`：租户/用户隔离、提议幂等、状态转换和过期；
+- `backend/migrations/versions/20260908_0004_memory_candidates.py`：候选表、查询索引和唯一约束；
+- `backend/src/procure_pilot/api/app.py`：自动/显式提议和候选处理 API；
+- `frontend/src/App.tsx`：用户可见的候选确认卡；
+- `backend/tests/test_memory_candidates.py`：临时需求、凭证、重复、冲突、跨租户、接受、拒绝、过期和幂等测试。
+
+当前提取器故意偏向少提取，避免误把一次性要求写成长期偏好。后续可以增加模型提取器来覆盖复杂表达，但模型输出仍只能成为候选，并且必须通过相同 Registry 与确认链路。
+
+### M3：独立知识库与制度 RAG（FTS 首片已完成）
+
+1. 建 Knowledge Document/Version/Chunk（已完成）；
 2. 将历史 `SEMANTIC` 迁移或停用；
-3. FTS + pgvector 混合召回；
-4. tenant/category/effective/version 过滤；
-5. RAG 引用与 Policy-as-Code 版本一致性；
-6. 无答案、过期、冲突进入安全停止或人工审核。
+3. FTS 召回已完成；pgvector + RRF 混合召回待完成；
+4. tenant/category/effective/version 过滤（已完成）；
+5. RAG 引用与 Policy-as-Code 版本一致性（已完成）；
+6. 无答案、过期、冲突进入安全停止或人工审核（已完成首片）。
 
 ### M4：持久化 Context 和生产强化
 

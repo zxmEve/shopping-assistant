@@ -308,6 +308,23 @@ h2 { margin-bottom: 0; font-size: 1.55rem; line-height: 1.1; letter-spacing: -.0
 .draft-success strong { font-size: .78rem; }
 .draft-success span { margin-top: 2px; font-size: .59rem; letter-spacing: .06em; }
 
+.memory-review { margin-top: 34px; padding: 28px; border: 1px solid var(--line); background: color-mix(in oklab, var(--paper) 90%, var(--sage)); }
+.memory-review .section-heading { margin-bottom: 10px; }
+.memory-review__intro { max-width: 68ch; margin: 0 0 20px; color: var(--ink-soft); font-size: .82rem; line-height: 1.7; }
+.memory-candidate-list { display: grid; gap: 10px; }
+.memory-candidate { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 18px; border: 1px solid var(--line); background: var(--paper); }
+.memory-candidate > div:first-child { display: grid; gap: 6px; }
+.memory-candidate strong { font-family: var(--serif); font-size: 1rem; font-weight: 600; }
+.memory-candidate small { color: var(--ink-soft); font-size: .67rem; }
+.memory-candidate__status { width: fit-content; color: var(--forest); font-size: .58rem; font-weight: 800; letter-spacing: .08em; }
+.memory-candidate--accepted { border-color: oklch(68% 0.11 145); background: oklch(97% 0.025 145); }
+.memory-candidate--rejected, .memory-candidate--expired { opacity: .58; }
+.memory-candidate__actions { display: flex !important; grid-auto-flow: column; gap: 8px !important; flex: 0 0 auto; }
+.memory-candidate__actions button { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 13px; border: 1px solid var(--line); color: var(--ink); background: transparent; cursor: pointer; font: inherit; font-size: .68rem; font-weight: 700; }
+.memory-candidate__actions button:last-child { border-color: var(--forest); color: var(--paper); background: var(--forest); }
+.memory-candidate__actions button:disabled { cursor: wait; opacity: .55; }
+.memory-notice { display: flex; align-items: center; gap: 8px; margin-top: 14px; color: var(--forest); font-size: .72rem; font-weight: 700; }
+
 .error-banner { display: flex; gap: 10px; margin-top: 20px; padding: 14px; color: var(--danger); background: oklch(92% 0.035 28); }
 
 .composer {
@@ -392,6 +409,9 @@ h2 { margin-bottom: 0; font-size: 1.55rem; line-height: 1.1; letter-spacing: -.0
   .normalization-counts { width: 100%; justify-content: space-between; }
   .decision-footer { align-items: stretch; flex-direction: column; }
   .primary-button { width: 100%; }
+  .memory-candidate { align-items: stretch; flex-direction: column; }
+  .memory-candidate__actions { width: 100%; }
+  .memory-candidate__actions button { flex: 1; justify-content: center; }
   .composer__meta span:last-child { display: none; }
   .inspector {
     position: relative;

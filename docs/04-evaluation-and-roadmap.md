@@ -303,7 +303,7 @@ flowchart LR
 - 进程内多来源商品 fixture 和企业 fixture gateway；
 - 主动追问、同款归一、成本/预算/制度校验、有证据推荐；
 - HITL、action token、幂等采购草稿；
-- 最小 Harness、trace、确定性结果投影和 39 个 golden 场景；完整 cassette 尚待实现；
+- 最小 Harness、trace、确定性结果投影和 42 个 golden 场景；完整 cassette 尚待实现；
 - 对话、比较、确认和 trace 四个最小 UI 区域。
 
 退出条件：满足[第一阶段范围与完成指标](06-phase-one-scope.md)中的全部 veto 指标和质量门槛。此阶段不接 Temporal、Kafka、长期记忆、浏览器和 live provider。

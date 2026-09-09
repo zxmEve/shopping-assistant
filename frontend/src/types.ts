@@ -141,3 +141,30 @@ export type EvalSummary = {
   veto_failures: string[]
   metrics?: Record<string, number>
 }
+
+export type MemoryCandidate = {
+  candidate_id: string
+  origin_run_id: string
+  scope: 'PROFILE' | 'TEAM' | 'EPISODIC'
+  key: string
+  key_definition_version: number
+  category_id: string
+  proposed_content: string
+  proposed_value_json: Record<string, unknown>
+  tags: string[]
+  source_message_refs: string[]
+  source_ref: string
+  confidence: number
+  conflict_type: 'NEW' | 'REPLACES_EXISTING'
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED'
+  expires_at: string
+  accepted_memory_id?: string
+}
+
+export type LongTermMemory = {
+  memory_id: string
+  key: string
+  content: string
+  value_json: Record<string, unknown>
+  source_ref: string
+}

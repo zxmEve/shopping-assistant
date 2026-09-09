@@ -10,6 +10,7 @@ import {
   Layers3,
   LoaderCircle,
   LockKeyhole,
+  MemoryStick,
   MessagesSquare,
   PackageSearch,
   PanelRightClose,
@@ -18,9 +19,25 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  X,
 } from 'lucide-react'
-import { confirmRun, continueRun, getEvalSummary, startRun } from './api'
-import type { Candidate, EvalSummary, OfferMatchAssessment, Run, RunResponse } from './types'
+import {
+  acceptMemoryCandidate,
+  confirmRun,
+  continueRun,
+  getEvalSummary,
+  listMemoryCandidates,
+  rejectMemoryCandidate,
+  startRun,
+} from './api'
+import type {
+  Candidate,
+  EvalSummary,
+  MemoryCandidate,
+  OfferMatchAssessment,
+  Run,
+  RunResponse,
+} from './types'
 
 const SAMPLE_REQUEST = '给印尼研发团队采购20台开发笔记本，单台不超过8000元，两周内到货，需要稳定运行Docker'
 
@@ -111,10 +128,18 @@ function App() {
   const [scenario, setScenario] = useState('normal')
   const [evals, setEvals] = useState<EvalSummary | null>(null)
   const [traceOpen, setTraceOpen] = useState(true)
+  const [memoryCandidates, setMemoryCandidates] = useState<MemoryCandidate[]>([])
+  const [resolvingCandidate, setResolvingCandidate] = useState('')
+  const [memoryNotice, setMemoryNotice] = useState('')
 
   useEffect(() => {
     getEvalSummary().then(setEvals).catch(() => setEvals(null))
   }, [])
+
+  useEffect(() => {
+    if (run?.state !== 'DRAFT_CREATED') return
+    listMemoryCandidates(run.run_id).then(setMemoryCandidates).catch(() => setMemoryCandidates([]))
+  }, [run?.run_id, run?.state])
 
   const activeStage = useMemo(() => stages.findIndex(([state]) => state === run?.state), [run?.state])
 
@@ -151,10 +176,45 @@ function App() {
     }
   }
 
+  async function acceptCandidate(candidate: MemoryCandidate) {
+    setResolvingCandidate(candidate.candidate_id)
+    setMemoryNotice('')
+    try {
+      const memory = await acceptMemoryCandidate(candidate)
+      setMemoryCandidates((items) => items.map((item) => (
+        item.candidate_id === candidate.candidate_id
+          ? { ...item, status: 'ACCEPTED', accepted_memory_id: memory.memory_id }
+          : item
+      )))
+      setMemoryNotice('已保存为长期偏好；后续任务会按 Agent 权限选择使用。')
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '偏好没有保存，请重试。')
+    } finally {
+      setResolvingCandidate('')
+    }
+  }
+
+  async function rejectCandidate(candidate: MemoryCandidate) {
+    setResolvingCandidate(candidate.candidate_id)
+    setMemoryNotice('')
+    try {
+      const resolved = await rejectMemoryCandidate(candidate)
+      setMemoryCandidates((items) => items.map((item) => (
+        item.candidate_id === candidate.candidate_id ? resolved : item
+      )))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '候选没有处理，请重试。')
+    } finally {
+      setResolvingCandidate('')
+    }
+  }
+
   function reset() {
     setRun(null)
     setInput(SAMPLE_REQUEST)
     setError('')
+    setMemoryCandidates([])
+    setMemoryNotice('')
   }
 
   return (
@@ -296,6 +356,48 @@ function App() {
             </section>
           )}
 
+          {run?.state === 'DRAFT_CREATED' && memoryCandidates.length > 0 && (
+            <section className="memory-review" aria-labelledby="memory-review-title">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">OPTIONAL MEMORY REVIEW</p>
+                  <h2 id="memory-review-title">要为下次记住这些偏好吗？</h2>
+                </div>
+                <MemoryStick size={24} />
+              </div>
+              <p className="memory-review__intro">
+                这些内容只是从你的原话提取的候选。未接受的内容不会进入长期记忆，也不会提供给 Agent。
+              </p>
+              <div className="memory-candidate-list">
+                {memoryCandidates.map((candidate) => (
+                  <article className={`memory-candidate memory-candidate--${candidate.status.toLowerCase()}`} key={candidate.candidate_id}>
+                    <div>
+                      <span className="memory-candidate__status">{candidate.status}</span>
+                      <strong>{candidate.proposed_content}</strong>
+                      <small>
+                        {candidate.conflict_type === 'REPLACES_EXISTING' ? '将替换已有偏好' : '新偏好'}
+                        {' · '}来源：本次对话
+                        {' · '}14 天内有效
+                      </small>
+                    </div>
+                    {candidate.status === 'PENDING' && (
+                      <div className="memory-candidate__actions">
+                        <button type="button" onClick={() => rejectCandidate(candidate)} disabled={Boolean(resolvingCandidate)}>
+                          <X size={15} /> 不保存
+                        </button>
+                        <button type="button" onClick={() => acceptCandidate(candidate)} disabled={Boolean(resolvingCandidate)}>
+                          {resolvingCandidate === candidate.candidate_id ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
+                          确认记住
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+              {memoryNotice && <div className="memory-notice"><ShieldCheck size={16} /> {memoryNotice}</div>}
+            </section>
+          )}
+
           {error && <div className="error-banner" role="alert"><CircleAlert size={18} /><span>{error}</span></div>}
         </section>
 
@@ -319,9 +421,9 @@ function App() {
           <span className="live-dot">LIVE</span>
         </div>
         <div className="agent-map">
-          <div className="agent-map__manager"><PackageSearch size={17} /><span>Orchestrator</span></div>
+          <div className="agent-map__manager"><PackageSearch size={17} /><span>Application Runtime</span></div>
           <div className="agent-map__line" />
-          <div className="agent-map__specialists"><span>Clarify</span><span>Source</span><span>Policy</span><span>Verify</span></div>
+          <div className="agent-map__specialists"><span>Requirement Agent</span><span>Sourcing Agent</span></div>
         </div>
         <div className="trace-list">
           {run?.trace.length ? run.trace.map((event, index) => (

@@ -46,6 +46,9 @@ class MemoryService:
         expires_at: datetime | None,
         request_id: str,
         displayed_text: str,
+        source_ref: str | None = None,
+        confidence: float = 1.0,
+        metadata: dict[str, Any] | None = None,
     ) -> LongTermMemory:
         self._authorize_write(scope, roles)
         definition, canonical_tags = self.registry.validate_memory(
@@ -85,6 +88,9 @@ class MemoryService:
                     "effective_at": effective_at,
                     "expires_at": expires_at,
                     "displayed_text": displayed_text,
+                    "source_ref": source_ref,
+                    "confidence": confidence,
+                    "metadata": metadata or {},
                 }
             ),
         )
@@ -99,12 +105,15 @@ class MemoryService:
             content=content,
             value_json=value_json,
             tags=canonical_tags,
-            source_ref=f"user://{user_id}/explicit-memory/{request_id}",
+            source_ref=source_ref or f"user://{user_id}/explicit-memory/{request_id}",
             consent_id=consent.consent_id,
-            confidence=1.0,
+            confidence=confidence,
             effective_at=effective,
             expires_at=expiry,
-            metadata={"memory_registry_version": self.registry.version},
+            metadata={
+                "memory_registry_version": self.registry.version,
+                **(metadata or {}),
+            },
             created_at=now,
             updated_at=now,
         )

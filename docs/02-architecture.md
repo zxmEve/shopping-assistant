@@ -47,6 +47,7 @@ flowchart TB
     RT --> MATCH[商品归一与硬约束匹配]
     RT --> COST[到手成本计算]
     RT --> POLICY[预算与制度规则]
+    RT --> KB[制度知识 FTS<br/>版本化条款引用]
     RT --> EVIDENCE[候选与证据校验]
     RT --> STATE[状态机与检查点]
     RT --> HITL[人工确认与幂等写入]
@@ -54,6 +55,7 @@ flowchart TB
     MATCH --> PG[(JSON / PostgreSQL)]
     COST --> PG
     POLICY --> PG
+    KB --> PG
     EVIDENCE --> PG
     STATE --> PG
     HITL --> PG
@@ -82,6 +84,7 @@ flowchart TB
 | Catalog Normalization & Match | 原始报价 | Product/Variant/Offer、接受或拒绝 | 型号、RAM、存储、成色等是硬约束 |
 | Cost Service | 报价、数量、税费、运费 | 精确到手总价 | 必须使用 `Decimal` 和固定公式 |
 | Budget & Policy Service | 员工、预算、供应商、金额、制度版本 | `ALLOW` / `ALLOW_WITH_APPROVAL` / `DENY` | 公司制度不能由模型自由解释后改写 |
+| Policy Knowledge Retrieval | tenant、品类、生效时间、查询 | 版本化条款引用或人工复核信号 | RAG 负责解释与引用，不能覆盖规则裁决 |
 | Evidence Validation | Agent 候选、当前 Run 已查结果 | 接受候选或否决 | 必须证明 ID 和引用来自本次可信检索 |
 | State & Checkpoint | 当前状态、事件、版本 | 新状态与版本 | 非法迁移必须 100% 拒绝 |
 | HITL & Write | 用户确认、Action Token、复核结果、幂等键 | 同一个采购草稿或安全停止 | 写操作需要权限、确认和唯一性保证 |
@@ -172,6 +175,6 @@ sequenceDiagram
 
 ## 9. 当前与后续边界
 
-当前已实现：两个 Agent、确定性业务服务、状态机、执行预算、三来源并行读取、有限重试/熔断、证据校验、人工确认、写前复核、幂等草稿、JSON/PostgreSQL Repository 和长期记忆 CRUD 基础。
+当前已实现：两个 Agent、确定性业务服务、状态机、执行预算、三来源并行读取、有限重试/熔断、证据校验、人工确认、写前复核、幂等草稿、JSON/PostgreSQL Repository、长期记忆闭环，以及制度文档版本化发布、FTS 检索和条款引用。
 
-M2.1 已将授权长期记忆通过 ContextAssembler 接入两个 Agent，M2.2 已完成受控 Key/Category/Tag、结构化值和 Consent。下一步实现记忆候选确认闭环和制度 RAG，再继续持久化 Agent execution/checkpoint、跨进程租约、真实 Provider 更大样本评测和受控 Agent 进化。
+M2.1 已将授权长期记忆通过 ContextAssembler 接入两个 Agent，M2.2 已完成受控 Key/Category/Tag、结构化值和 Consent，M2.3 已完成安全终态候选提取、用户确认和幂等写入。制度 RAG 已完成 FTS 最小纵向切片；下一步增加 pgvector、RRF、rerank 和检索标注集，再继续持久化 Agent execution/checkpoint、跨进程租约、真实 Provider 更大样本评测和受控 Agent 进化。

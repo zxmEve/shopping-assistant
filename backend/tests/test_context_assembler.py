@@ -266,7 +266,9 @@ async def test_engine_passes_assembled_context_to_agent_and_traces_only_metadata
     assert envelope.task.agent == AgentKind.SOURCING
     assert envelope.context is not None
     assert [item.memory_id for item in envelope.context.memories] == [memory.memory_id]
-    trace = next(event for event in response.run.trace if event.name == "context.assembly_completed")
+    trace = next(
+        event for event in response.run.trace if event.name == "context.assembly_completed"
+    )
     assert trace.detail["selected"][0]["memory_id"] == memory.memory_id
     assert "只在 Agent envelope 中使用的私人偏好" not in str(trace.detail)
     assert "tenant_id" not in envelope.context.model_dump()

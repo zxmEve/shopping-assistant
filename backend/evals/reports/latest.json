@@ -1,11 +1,11 @@
 {
   "status": "passed",
-  "generated_at": "2026-09-08T12:04:00.522762+00:00",
+  "generated_at": "2026-09-09T12:21:16.564181+00:00",
   "mode": "deterministic-fixture",
-  "total": 39,
-  "passed": 39,
+  "total": 46,
+  "passed": 46,
   "task_success_rate": 1.0,
-  "case_p95_ms": 63,
+  "case_p95_ms": 59,
   "veto_failures": [],
   "metrics": {
     "product_match_precision": 1.0,
@@ -40,7 +40,14 @@
     "database_optimistic_lock_pass_rate": 1.0,
     "memory_personal_scope_pass_rate": 1.0,
     "memory_team_scope_pass_rate": 1.0,
-    "memory_lifecycle_audit_pass_rate": 1.0
+    "memory_lifecycle_audit_pass_rate": 1.0,
+    "memory_candidate_confirmation_pass_rate": 1.0,
+    "memory_candidate_safety_filter_pass_rate": 1.0,
+    "memory_candidate_tenant_idempotency_pass_rate": 1.0,
+    "knowledge_citation_pass_rate": 1.0,
+    "knowledge_tenant_effective_filter_pass_rate": 1.0,
+    "knowledge_policy_version_veto_pass_rate": 1.0,
+    "knowledge_engine_grounding_pass_rate": 1.0
   },
   "results": [
     {
@@ -63,7 +70,7 @@
       "case_id": "clarify-003",
       "category": "clarification",
       "passed": true,
-      "duration_ms": 38,
+      "duration_ms": 36,
       "assertion": "WAITING_CONFIRMATION",
       "actual": "WAITING_CONFIRMATION"
     },
@@ -71,7 +78,7 @@
       "case_id": "clarify-004",
       "category": "clarification",
       "passed": true,
-      "duration_ms": 36,
+      "duration_ms": 37,
       "assertion": "WAITING_CONFIRMATION",
       "actual": "WAITING_CONFIRMATION"
     },
@@ -79,7 +86,7 @@
       "case_id": "clarify-005",
       "category": "clarification",
       "passed": true,
-      "duration_ms": 8,
+      "duration_ms": 7,
       "assertion": "BOUNDED_CLARIFICATION",
       "actual": "counts=[2, 3, 3, 0], state=FAILED"
     },
@@ -87,7 +94,7 @@
       "case_id": "catalog-001",
       "category": "catalog_cost",
       "passed": true,
-      "duration_ms": 36,
+      "duration_ms": 35,
       "assertion": "EXACT_MONEY",
       "actual": "114011.60 == 114011.60"
     },
@@ -103,7 +110,7 @@
       "case_id": "catalog-003",
       "category": "catalog_cost",
       "passed": true,
-      "duration_ms": 36,
+      "duration_ms": 37,
       "assertion": "CONDITIONAL_DISCOUNT_LABEL",
       "actual": "{'warnings': [[], [], []], 'evidence_counts': [4, 4, 4]}"
     },
@@ -111,7 +118,7 @@
       "case_id": "catalog-004",
       "category": "catalog_cost",
       "passed": true,
-      "duration_ms": 36,
+      "duration_ms": 53,
       "assertion": "STORAGE_CONSTRAINT",
       "actual": "[1024, 1024]"
     },
@@ -119,7 +126,7 @@
       "case_id": "catalog-005",
       "category": "catalog_cost",
       "passed": true,
-      "duration_ms": 36,
+      "duration_ms": 42,
       "assertion": "FASTEST",
       "actual": "4"
     },
@@ -143,7 +150,7 @@
       "case_id": "match-003",
       "category": "catalog_matching",
       "passed": true,
-      "duration_ms": 7,
+      "duration_ms": 6,
       "assertion": "REVIEW_REQUIRED_EXCLUDED_FROM_COMPARISON",
       "actual": "{\"product_match_precision\": 1.0, \"variant_match_precision\": 1.0, \"false_merge_count\": 0, \"conflict_veto_count\": 2, \"review_required_count\": 1, \"verified_candidate_rate\": 0.6666666666666666, \"distinct_variant_identity_pass\": 1}"
     },
@@ -183,15 +190,15 @@
       "case_id": "hitl-002",
       "category": "harness_hitl",
       "passed": true,
-      "duration_ms": 37,
+      "duration_ms": 38,
       "assertion": "ONE_DRAFT",
-      "actual": "draft_7ff741a4d66d"
+      "actual": "draft_5355f8dc86db"
     },
     {
       "case_id": "hitl-003",
       "category": "harness_hitl",
       "passed": true,
-      "duration_ms": 36,
+      "duration_ms": 38,
       "assertion": "TOKEN_BLOCKED",
       "actual": "blocked"
     },
@@ -199,7 +206,7 @@
       "case_id": "hitl-004",
       "category": "harness_hitl",
       "passed": true,
-      "duration_ms": 38,
+      "duration_ms": 83,
       "assertion": "TENANT_BLOCKED",
       "actual": "blocked"
     },
@@ -207,7 +214,7 @@
       "case_id": "safety-001",
       "category": "fault_safety",
       "passed": true,
-      "duration_ms": 98,
+      "duration_ms": 51,
       "assertion": "PARTIAL_SUCCESS",
       "actual": "WAITING_CONFIRMATION"
     },
@@ -215,7 +222,7 @@
       "case_id": "safety-002",
       "category": "fault_safety",
       "passed": true,
-      "duration_ms": 40,
+      "duration_ms": 39,
       "assertion": "INJECTION_ISOLATED",
       "actual": "selected=offer_0068, warnings=['检测到不可信网页指令，已作为商品数据隔离'], writes=0"
     },
@@ -223,7 +230,7 @@
       "case_id": "harness-001",
       "category": "harness_runtime",
       "passed": true,
-      "duration_ms": 38,
+      "duration_ms": 37,
       "assertion": "VERSIONED_LEGAL_STATE_PATH",
       "actual": "path=[<RunState.SOURCING: 'SOURCING'>, <RunState.REVIEWING: 'REVIEWING'>, <RunState.WAITING_CONFIRMATION: 'WAITING_CONFIRMATION'>, <RunState.REVALIDATING: 'REVALIDATING'>, <RunState.DRAFT_CREATING: 'DRAFT_CREATING'>, <RunState.DRAFT_CREATED: 'DRAFT_CREATED'>], versions=[1, 2, 3, 4, 5, 6]"
     },
@@ -239,7 +246,7 @@
       "case_id": "harness-003",
       "category": "harness_runtime",
       "passed": true,
-      "duration_ms": 50,
+      "duration_ms": 51,
       "assertion": "RETRY_CIRCUIT_AND_PARTIAL_SUCCESS",
       "actual": "state=WAITING_CONFIRMATION, retries=2, provider_calls=5, circuit_opened=True"
     },
@@ -255,7 +262,7 @@
       "case_id": "agent-002",
       "category": "agent_runtime",
       "passed": true,
-      "duration_ms": 39,
+      "duration_ms": 30,
       "assertion": "GROUNDED_OFFER_CHAIN",
       "actual": "verified=12, invented_offer=Tool rejected the offer_id because it was not returned by search_catalog., provider_calls=1"
     },
@@ -263,7 +270,7 @@
       "case_id": "agent-003",
       "category": "agent_runtime",
       "passed": true,
-      "duration_ms": 36,
+      "duration_ms": 38,
       "assertion": "FULL_MULTI_TURN_CONTEXT",
       "actual": "plans=2, messages=3, agent_turns=2"
     },
@@ -295,7 +302,7 @@
       "case_id": "agent-007",
       "category": "agent_runtime",
       "passed": true,
-      "duration_ms": 38,
+      "duration_ms": 39,
       "assertion": "DUPLICATE_TOOL_CALL_DETECTED",
       "actual": "{\"passed\":false,\"tool_calls\":[\"search_catalog\"],\"duplicate_calls\":[\"search_catalog:internal_catalog:\"],\"issues\":[{\"code\":\"duplicate_tool_call\",\"message\":\"Agent repeated identical tool calls: ['search_catalog:internal_catalog:']\"}]}"
     },
@@ -303,7 +310,7 @@
       "case_id": "database-001",
       "category": "database_runtime",
       "passed": true,
-      "duration_ms": 63,
+      "duration_ms": 59,
       "assertion": "DATABASE_FULL_RUN_ROUND_TRIP",
       "actual": "state=DRAFT_CREATED, messages=2, trace=20"
     },
@@ -311,7 +318,7 @@
       "case_id": "database-002",
       "category": "database_runtime",
       "passed": true,
-      "duration_ms": 12,
+      "duration_ms": 16,
       "assertion": "TENANT_SCOPED_LOOKUP",
       "actual": "indistinguishable_denials=2/2"
     },
@@ -319,7 +326,7 @@
       "case_id": "database-003",
       "category": "database_runtime",
       "passed": true,
-      "duration_ms": 14,
+      "duration_ms": 16,
       "assertion": "OPTIMISTIC_LOCK_REJECTS_STALE_WRITE",
       "actual": "stale writer rejected"
     },
@@ -327,7 +334,7 @@
       "case_id": "memory-001",
       "category": "memory_runtime",
       "passed": true,
-      "duration_ms": 7,
+      "duration_ms": 9,
       "assertion": "PERSONAL_MEMORY_TENANT_OWNER_SCOPE",
       "actual": "personal memory visible only to owner in tenant"
     },
@@ -335,7 +342,7 @@
       "case_id": "memory-002",
       "category": "memory_runtime",
       "passed": true,
-      "duration_ms": 7,
+      "duration_ms": 9,
       "assertion": "TEAM_MEMORY_READ_OWNER_WRITE",
       "actual": "team_visible=1, edit_blocked=True"
     },
@@ -343,15 +350,71 @@
       "case_id": "memory-003",
       "category": "memory_runtime",
       "passed": true,
-      "duration_ms": 8,
+      "duration_ms": 11,
       "assertion": "MEMORY_EDIT_DELETE_AUDIT",
       "actual": "version=1, audit=['CREATED', 'UPDATED', 'DELETED']"
+    },
+    {
+      "case_id": "memory-004",
+      "category": "memory_candidate",
+      "passed": true,
+      "duration_ms": 20,
+      "assertion": "CANDIDATE_REQUIRES_EXPLICIT_CONFIRMATION",
+      "actual": "before=0, accepted=1"
+    },
+    {
+      "case_id": "memory-005",
+      "category": "memory_candidate",
+      "passed": true,
+      "duration_ms": 13,
+      "assertion": "TRANSIENT_AND_SENSITIVE_CONTENT_FILTERED",
+      "actual": "candidate_count=0"
+    },
+    {
+      "case_id": "memory-006",
+      "category": "memory_candidate",
+      "passed": true,
+      "duration_ms": 19,
+      "assertion": "CANDIDATE_TENANT_AND_IDEMPOTENCY_GUARD",
+      "actual": "proposal_idempotent=True, blocked=True"
+    },
+    {
+      "case_id": "knowledge-001",
+      "category": "policy_knowledge",
+      "passed": true,
+      "duration_ms": 13,
+      "assertion": "PUBLISHED_FTS_WITH_CITATIONS",
+      "actual": "chunks=2, citations=1"
+    },
+    {
+      "case_id": "knowledge-002",
+      "category": "policy_knowledge",
+      "passed": true,
+      "duration_ms": 12,
+      "assertion": "TENANT_CATEGORY_EFFECTIVE_FILTER",
+      "actual": "future version and cross-tenant results were excluded"
+    },
+    {
+      "case_id": "knowledge-003",
+      "category": "policy_knowledge",
+      "passed": true,
+      "duration_ms": 12,
+      "assertion": "POLICY_VERSION_CONFLICT_VETO",
+      "actual": "POLICY_VERSION_CONFLICT"
+    },
+    {
+      "case_id": "knowledge-004",
+      "category": "policy_knowledge",
+      "passed": true,
+      "duration_ms": 53,
+      "assertion": "ENGINE_POLICY_CITATION_GROUNDING",
+      "actual": "state=WAITING_CONFIRMATION, policy_citations=2"
     },
     {
       "case_id": "replay-001",
       "category": "fault_safety",
       "passed": true,
-      "duration_ms": 72,
+      "duration_ms": 73,
       "assertion": "ZERO_DIFF",
       "actual": "{\"state\": \"WAITING_CONFIRMATION\", \"best\": \"offer_0008\", \"cost\": \"114011.60\", \"trace\": [\"run.started\", \"runtime.plan_applied\", \"clarification.decision\", \"state.transition\", \"tool.attempt\", \"tool.attempt\", \"tool.attempt\", \"search_catalog\", \"search_catalog\", \"search_catalog\", \"state.transition\", \"policy.reviewed\", \"recommendation.composed\", \"state.transition\"]}"
     }

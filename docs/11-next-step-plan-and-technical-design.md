@@ -1,7 +1,7 @@
 # 项目进度与下一步计划
 
-> 更新日期：2026-09-08
-> 当前主线：双 Agent 闭环、M2.1 上下文装配和 M2.2 结构化记忆 Registry 已完成；下一步做记忆候选确认闭环，再接制度 RAG。
+> 更新日期：2026-09-09
+> 当前主线：双 Agent、记忆闭环和制度 RAG 的 FTS 最小纵向切片已完成；下一步补 pgvector + RRF 混合检索和标注检索集。
 
 ## 1. 当前结论
 
@@ -36,15 +36,17 @@
 | 长期记忆 | 已完成存储首片 | Profile/Team/Episodic/Semantic 模型、授权 CRUD 和审计 |
 | Agent 上下文 | 已完成 M2.1 | ContextPolicy、权限过滤、双 Agent 投影、冲突处理、token 裁剪和 Trace |
 | 结构化记忆 | 已完成 M2.2 | 受控 Key/Category/Tag Registry、Schema、有效期、Consent、TEAM 写权限、版本替代 |
-| 自动测试 | 已完成当前基线 | 96 个后端测试和 39 个确定性评测通过 |
+| 记忆候选 | 已完成 M2.3 | 安全终态提取、PII/凭证/临时需求过滤、接受/拒绝/过期、幂等写入与 UI |
+| 制度知识 FTS | 已完成最小纵向切片 | 独立文档/版本/条款，管理员发布，tenant/category/effective 过滤，引用与规则版本一致性校验 |
+| 自动测试 | 已完成当前基线 | 109 个后端测试和 46 个确定性评测通过 |
 
 ## 3. 还没有完成
 
 - Requirement Agent 目前主要判断缺失字段；复杂自然语言实体抽取仍由简单规则承担。
 - Sourcing Agent 使用 fixture provider；尚未接真实企业目录或商城 API。
-- 记忆仍由显式 API 写入，尚未实现“安全终态提取候选—用户确认—幂等写入”。
+- 候选提取当前是保守的确定性规则，只覆盖 Registry 中已登记的笔记本偏好；更复杂表达可在后续接入受 Schema 约束的模型提取器，但不能改变确认边界。
 - Registry 当前来自版本控制 YAML，尚未从真实 PIM/ERP 主数据同步；Tag 暂存为正式 ID 数组，未拆关联表。
-- 制度结论仍来自版本化 Policy-as-Code；尚未接入制度文档 RAG。
+- 制度结论仍来自版本化 Policy-as-Code；FTS 已提供条款引用，但尚未加入向量召回、RRF、rerank 和真实制度标注集。
 - PostgreSQL 按请求边界保存 Run；尚未把每个 Agent execution/checkpoint 做成可租约恢复的记录。
 - 两 Agent 新拓扑已完成 DeepSeek 12-case × 1 smoke（12/12），尚未执行 ×3 稳定性门禁。
 - “Agent 进化”只有评测和报告基础，还没有形成提案、离线验证、人工审批、canary、回滚闭环。
@@ -101,20 +103,22 @@ M2.2 已补上 `effective_at/expires_at`，Repository 和 ContextAssembler 现�
 
 为什么 Registry 放在版本控制而不是让用户在线维护，见 [ADR-0011](adr/0011-controlled-memory-registry.md)。
 
-### M2.3：记忆候选闭环（下一步）
+### M2.3：记忆候选闭环（已完成）
 
 目标：用户不必手工填写 Key 和 JSON；系统从安全终态 Run 提出候选，但只有用户看过并接受后才进入长期记忆。
 
-任务：
+已完成：
 
-1. 只从成功或安全结束的 Run 中选择用户明确表达、纠正和已接受权衡；
-2. 生成受 Registry 约束的 `MemoryCandidate`，模型不能直接写长期记忆；
-3. 做 PII、实时价格/预算、重复和冲突过滤；
-4. 增加候选查询、接受、拒绝和过期 API；
-5. 接受时复用 M2.2 Consent、幂等、版本替代和审计链路；
-6. 增加候选 UI 与端到端测试。
+1. 只在 `DRAFT_CREATED` 后读取用户消息，要求“以后、默认、记住”等长期意图；“这次”需求和助手消息不提取；
+2. 生成受 Registry Schema、Scope、Category 和 Tag 约束的 `MemoryCandidate`，候选不进入 Agent Context；
+3. 凭证、邮箱、手机号、银行卡等内容被拒绝，实时预算和价格没有可保存的候选 Key；
+4. 精确重复已有记忆会被抑制，变更会标记 `REPLACES_EXISTING`；接受时若目标记忆已变化，会拒绝旧候选并要求重新生成；
+5. 提供候选查询、重新提取、接受和拒绝 API；14 天未处理自动标记 `EXPIRED`；
+6. 接受复用 M2.2 Consent、幂等和版本替代链路，Run Trace 只记录候选元数据；
+7. 前端展示可选确认卡，明确“不接受就不会保存”；
+8. SQLite 自动化回归和真实 PostgreSQL 17 migration `20260908_0004` 已通过。
 
-### M3：接入制度 RAG
+### M3：接入制度 RAG（FTS 首片已完成）
 
 目标：RAG 负责“找到并引用适用条款”，Policy Service 仍负责最终决定。
 
@@ -128,7 +132,9 @@ M2.2 已补上 `effective_at/expires_at`，Repository 和 ContextAssembler 现�
 
 RAG 不直接成为第三个 Agent。它是 Policy Service 的只读检索能力。若检索不到有效条款，系统返回 `NEEDS_REVIEW` 或安全停止，不能让模型补写制度。
 
-完成标准：引用准确率、tenant 隔离、时间有效性和无答案拒答进入自动评测；规则结论仍可用固定输入完全复现。
+已完成：原文哈希、结构切块、文档版本/生效期、治理角色导入和发布、PostgreSQL GIN FTS、tenant/category/effective 过滤、条款引用、Engine 推荐/确认前版本复核，以及无答案/无有效版本/版本冲突安全停止。Alembic `20260909_0005` 已在 PostgreSQL 17 验证。
+
+下一切片：增加 pgvector embedding、FTS/vector 各自 Top-K、RRF 融合、可选 rerank，并建立带相关/不相关条款标注的检索评测集。规则结论继续用固定输入完全复现。
 
 ### M4：持久化执行与检查点
 
@@ -171,4 +177,4 @@ RAG 不直接成为第三个 Agent。它是 Policy Service 的只读检索能力
 
 ## 6. 最近的一个具体开发任务
 
-下一次开发应完成 **M2.3 记忆候选—用户确认—幂等写入闭环**。候选只能来自可引用的用户消息，不能保存模型建议、实时价格、实时预算或凭证。制度文本继续留给 M3 RAG，不塞进用户记忆。DeepSeek ×3 稳定性门禁在发布前补齐，但不阻塞本地候选开发。
+下一次开发应完成 **M3.2 pgvector—FTS/vector 双路召回—RRF—检索评测集**。制度知识继续使用独立知识库，不能塞进用户记忆；Policy-as-Code 仍负责最终允许、拒绝或人工复核。DeepSeek ×3 稳定性门禁在发布前补齐，但不阻塞本地检索开发。

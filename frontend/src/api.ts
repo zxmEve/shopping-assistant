@@ -1,4 +1,4 @@
-import type { EvalSummary, RunResponse } from './types'
+import type { EvalSummary, LongTermMemory, MemoryCandidate, RunResponse } from './types'
 
 const headers = {
   'Content-Type': 'application/json',
@@ -37,4 +37,27 @@ export function confirmRun(runId: string, actionToken: string): Promise<RunRespo
 
 export function getEvalSummary(): Promise<EvalSummary> {
   return request('/api/evals/summary')
+}
+
+export function listMemoryCandidates(runId: string): Promise<MemoryCandidate[]> {
+  const query = new URLSearchParams({ origin_run_id: runId })
+  return request(`/api/memory-candidates?${query}`)
+}
+
+export function acceptMemoryCandidate(candidate: MemoryCandidate): Promise<LongTermMemory> {
+  return request(`/api/memory-candidates/${candidate.candidate_id}/accept`, {
+    method: 'POST',
+    body: JSON.stringify({
+      request_id: `accept-${candidate.candidate_id}`,
+      displayed_text: candidate.proposed_content,
+      consent_acknowledged: true,
+    }),
+  })
+}
+
+export function rejectMemoryCandidate(candidate: MemoryCandidate): Promise<MemoryCandidate> {
+  return request(`/api/memory-candidates/${candidate.candidate_id}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ request_id: `reject-${candidate.candidate_id}` }),
+  })
 }

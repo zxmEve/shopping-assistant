@@ -5,7 +5,7 @@ import json
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -18,7 +18,9 @@ from procure_pilot.agents.tools import (
     AgentRuntimeContext,
     build_function_tools,
 )
-from procure_pilot.domain.memory import LongTermMemory, MemoryScope
+from procure_pilot.config import BACKEND_ROOT
+from procure_pilot.domain.knowledge import PolicyKnowledgeReviewRequired
+from procure_pilot.domain.memory import LongTermMemory, MemoryCandidateStatus, MemoryScope
 from procure_pilot.domain.models import (
     BudgetResource,
     BundleType,
@@ -44,10 +46,18 @@ from procure_pilot.harness.runtime import (
     PersistenceConflictError,
     RunRepository,
 )
+from procure_pilot.persistence.knowledge_repository import SqlAlchemyKnowledgeRepository
+from procure_pilot.persistence.memory_candidate_repository import (
+    SqlAlchemyMemoryCandidateRepository,
+)
 from procure_pilot.persistence.memory_repository import SqlAlchemyMemoryRepository
 from procure_pilot.persistence.models import Base
 from procure_pilot.persistence.repository import SqlAlchemyRunRepository
 from procure_pilot.services.engine import ProcurementEngine
+from procure_pilot.services.knowledge import PolicyKnowledgeService
+from procure_pilot.services.memory import MemoryService
+from procure_pilot.services.memory_candidates import MemoryCandidateService
+from procure_pilot.services.memory_registry import MemoryRegistry
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCENARIO_FILE = PROJECT_ROOT / "evals" / "scenarios" / "phase1.json"
@@ -880,6 +890,231 @@ async def check_memory_003() -> tuple[bool, str]:
         return passed, f"version={updated.version}, audit={actions}"
 
 
+def _memory_candidate_service(
+    directory: str,
+) -> tuple[MemoryCandidateService, SqlAlchemyMemoryCandidateRepository]:
+    memory_repository = _memory_repository(directory)
+    candidate_repository = SqlAlchemyMemoryCandidateRepository(
+        "sqlite://",
+        engine=memory_repository.engine,
+    )
+    registry = MemoryRegistry.from_yaml(BACKEND_ROOT / "config/memory_registry.yaml")
+    service = MemoryCandidateService(
+        candidate_repository,
+        memory_repository,
+        MemoryService(memory_repository, registry),
+        registry,
+    )
+    return service, candidate_repository
+
+
+async def check_memory_004() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        service, _ = _memory_candidate_service(directory)
+        run = ProcurementRun(
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            state=RunState.DRAFT_CREATED,
+            messages=[Message(role="user", content="以后采购开发笔记本默认至少32GB内存")],
+        )
+        candidate = service.propose_from_run(run, team_id="R&D")[0]
+        before = service.memory_repository.list(
+            tenant_id="demo_cn", user_id="employee_001", team_id="R&D"
+        )
+        memory = service.accept(
+            candidate.candidate_id,
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            team_id="R&D",
+            roles=("EMPLOYEE",),
+            request_id="eval-candidate-accept-001",
+            displayed_text=candidate.proposed_content,
+        )
+        resolved = service.list(
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            status=MemoryCandidateStatus.ACCEPTED,
+        )
+        passed = before == [] and resolved[0].accepted_memory_id == memory.memory_id
+        return passed, f"before={len(before)}, accepted={len(resolved)}"
+
+
+async def check_memory_005() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        service, _ = _memory_candidate_service(directory)
+        run = ProcurementRun(
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            state=RunState.DRAFT_CREATED,
+            messages=[
+                Message(role="assistant", content="记住以后优先 Dell"),
+                Message(role="user", content="这次要64GB内存"),
+                Message(
+                    role="user",
+                    content="以后默认32GB内存，API key 是 redacted-example-value",
+                ),
+            ],
+        )
+        candidates = service.propose_from_run(run, team_id="R&D")
+        return candidates == [], f"candidate_count={len(candidates)}"
+
+
+async def check_memory_006() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        service, candidate_repository = _memory_candidate_service(directory)
+        run = ProcurementRun(
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            state=RunState.DRAFT_CREATED,
+            messages=[Message(role="user", content="以后采购笔记本优先 Lenovo")],
+        )
+        first = service.propose_from_run(run, team_id="R&D")[0]
+        repeated = service.propose_from_run(run, team_id="R&D")[0]
+        blocked = False
+        try:
+            candidate_repository.get(
+                first.candidate_id,
+                tenant_id="demo_id",
+                owner_user_id="employee_101",
+            )
+        except PermissionError:
+            blocked = True
+        memory = service.accept(
+            first.candidate_id,
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            team_id="R&D",
+            roles=("EMPLOYEE",),
+            request_id="eval-candidate-idempotent-001",
+            displayed_text=first.proposed_content,
+        )
+        accepted_again = service.accept(
+            first.candidate_id,
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            team_id="R&D",
+            roles=("EMPLOYEE",),
+            request_id="eval-candidate-idempotent-001",
+            displayed_text=first.proposed_content,
+        )
+        passed = (
+            first.candidate_id == repeated.candidate_id
+            and blocked
+            and memory.memory_id == accepted_again.memory_id
+        )
+        return (
+            passed,
+            f"proposal_idempotent={first.candidate_id == repeated.candidate_id}, blocked={blocked}",
+        )
+
+
+def _knowledge_service(directory: str) -> PolicyKnowledgeService:
+    repository = SqlAlchemyKnowledgeRepository(f"sqlite+pysqlite:///{directory}/knowledge.db")
+    Base.metadata.create_all(repository.engine)
+    return PolicyKnowledgeService(repository)
+
+
+def _publish_eval_policy(
+    service: PolicyKnowledgeService,
+    *,
+    tenant_id: str = "demo_cn",
+    policy_version: str = "3",
+    effective_from: datetime | None = None,
+    content: str | None = None,
+):
+    imported = service.ingest(
+        tenant_id=tenant_id,
+        actor_user_id="knowledge_admin_001",
+        roles=("KNOWLEDGE_STEWARD",),
+        document_key="developer-laptop-policy",
+        title="研发设备采购制度",
+        category_id="CAT-COMPUTER-LAPTOP",
+        source_uri="https://policies.example.test/developer-laptop",
+        policy_version=policy_version,
+        effective_from=effective_from or datetime.now(UTC) - timedelta(days=1),
+        raw_content=content
+        or (
+            "第一条 研发笔记本标准\n研发笔记本不得低于32GB内存，保修不得少于36个月，"
+            "并且必须为全新商品。\n第二条 审批和供应商准入\n采购超过10000元需要经理审批，"
+            "供应商未准入时必须由采购专员复核。"
+        ),
+    )
+    service.publish(
+        imported.document.document_id,
+        tenant_id=tenant_id,
+        roles=("KNOWLEDGE_STEWARD",),
+    )
+    return imported
+
+
+async def check_knowledge_001() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        service = _knowledge_service(directory)
+        imported = _publish_eval_policy(service)
+        result = service.search(
+            tenant_id="demo_cn",
+            category_id="CAT-COMPUTER-LAPTOP",
+            query="研发笔记本内存保修",
+        )
+        passed = bool(result.citations) and all(
+            citation.policy_version == "3"
+            and citation.source_ref.startswith("knowledge://developer-laptop-policy/v1/")
+            for citation in result.citations
+        )
+        return passed, f"chunks={imported.chunk_count}, citations={len(result.citations)}"
+
+
+async def check_knowledge_002() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        service = _knowledge_service(directory)
+        _publish_eval_policy(
+            service,
+            effective_from=datetime.now(UTC) + timedelta(days=1),
+        )
+        current = service.search(
+            tenant_id="demo_cn",
+            category_id="CAT-COMPUTER-LAPTOP",
+            query="研发笔记本内存",
+        )
+        other_tenant = service.search(
+            tenant_id="demo_id",
+            category_id="CAT-COMPUTER-LAPTOP",
+            query="研发笔记本内存",
+            as_of=datetime.now(UTC) + timedelta(days=2),
+        )
+        passed = current.citations == [] and other_tenant.citations == []
+        return passed, "future version and cross-tenant results were excluded"
+
+
+async def check_knowledge_003() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        service = _knowledge_service(directory)
+        _publish_eval_policy(service, policy_version="2")
+        try:
+            service.verify_policy_evidence(
+                tenant_id="demo_cn",
+                category_id="CAT-COMPUTER-LAPTOP",
+                query="研发笔记本内存保修",
+                expected_policy_version="3",
+            )
+        except PolicyKnowledgeReviewRequired as exc:
+            return exc.code == "POLICY_VERSION_CONFLICT", exc.code
+        return False, "version conflict was accepted"
+
+
+async def check_knowledge_004() -> tuple[bool, str]:
+    with TemporaryDirectory() as directory:
+        service = _knowledge_service(directory)
+        _publish_eval_policy(service)
+        engine = make_engine()
+        engine.knowledge_service = service
+        response = await _start(engine)
+        refs = response.run.recommendation.best_overall.evidence_refs
+        citations = [ref for ref in refs if ref.startswith("knowledge://")]
+        passed = response.run.state == RunState.WAITING_CONFIRMATION and bool(citations)
+        return passed, f"state={response.run.state}, policy_citations={len(citations)}"
+
+
 async def check_replay_001() -> tuple[bool, str]:
     first = await _start(make_engine())
     second = await _start(make_engine())
@@ -937,6 +1172,13 @@ CHECKS: dict[str, Callable[[], Awaitable[tuple[bool, str]]]] = {
     "memory-001": check_memory_001,
     "memory-002": check_memory_002,
     "memory-003": check_memory_003,
+    "memory-004": check_memory_004,
+    "memory-005": check_memory_005,
+    "memory-006": check_memory_006,
+    "knowledge-001": check_knowledge_001,
+    "knowledge-002": check_knowledge_002,
+    "knowledge-003": check_knowledge_003,
+    "knowledge-004": check_knowledge_004,
     "replay-001": check_replay_001,
 }
 
@@ -990,6 +1232,13 @@ async def run_evaluation() -> dict:
         "memory-001",
         "memory-002",
         "memory-003",
+        "memory-004",
+        "memory-005",
+        "memory-006",
+        "knowledge-001",
+        "knowledge-002",
+        "knowledge-003",
+        "knowledge-004",
         "replay-001",
     }
     match_metrics = grade_catalog_matching()
@@ -1085,6 +1334,27 @@ async def run_evaluation() -> dict:
             else 0.0,
             "memory_lifecycle_audit_pass_rate": 1.0
             if next(item for item in results if item.case_id == "memory-003").passed
+            else 0.0,
+            "memory_candidate_confirmation_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "memory-004").passed
+            else 0.0,
+            "memory_candidate_safety_filter_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "memory-005").passed
+            else 0.0,
+            "memory_candidate_tenant_idempotency_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "memory-006").passed
+            else 0.0,
+            "knowledge_citation_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "knowledge-001").passed
+            else 0.0,
+            "knowledge_tenant_effective_filter_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "knowledge-002").passed
+            else 0.0,
+            "knowledge_policy_version_veto_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "knowledge-003").passed
+            else 0.0,
+            "knowledge_engine_grounding_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "knowledge-004").passed
             else 0.0,
         },
         "results": [asdict(result) for result in results],

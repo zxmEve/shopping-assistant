@@ -23,6 +23,18 @@ class MemoryStatus(StrEnum):
     DELETED = "DELETED"
 
 
+class MemoryCandidateStatus(StrEnum):
+    PENDING = "PENDING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"
+
+
+class MemoryCandidateConflict(StrEnum):
+    NEW = "NEW"
+    REPLACES_EXISTING = "REPLACES_EXISTING"
+
+
 class LongTermMemory(BaseModel):
     memory_id: str = Field(default_factory=lambda: f"mem_{uuid4().hex[:16]}")
     tenant_id: str
@@ -80,3 +92,31 @@ class MemoryAuditEvent(BaseModel):
     before: dict | None = None
     after: dict | None = None
     created_at: datetime
+
+
+class MemoryCandidate(BaseModel):
+    """A reviewable proposal. It is not long-term memory until explicitly accepted."""
+
+    candidate_id: str = Field(default_factory=lambda: f"mc_{uuid4().hex[:16]}")
+    tenant_id: str
+    owner_user_id: str
+    origin_run_id: str
+    scope: MemoryScope = MemoryScope.PROFILE
+    key: str = Field(min_length=1, max_length=128)
+    key_definition_version: int = Field(gt=0)
+    category_id: str = Field(min_length=1, max_length=128)
+    proposed_content: str = Field(min_length=1, max_length=2000)
+    proposed_value_json: dict[str, Any]
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    source_message_refs: list[str] = Field(min_length=1, max_length=20)
+    source_ref: str = Field(min_length=1, max_length=512)
+    confidence: float = Field(ge=0, le=1)
+    proposal_fingerprint: str = Field(pattern=r"^[a-f0-9]{64}$")
+    dedup_target_memory_id: str | None = None
+    conflict_type: MemoryCandidateConflict = MemoryCandidateConflict.NEW
+    status: MemoryCandidateStatus = MemoryCandidateStatus.PENDING
+    expires_at: datetime
+    accepted_memory_id: str | None = None
+    resolution_request_id: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    resolved_at: datetime | None = None

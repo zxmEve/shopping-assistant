@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from procure_pilot.agents.runtime import AgentPlanner, DeterministicAgentPlanner
 from procure_pilot.agents.tools import AgentRuntimeContext
+from procure_pilot.domain.knowledge import PolicyKnowledgeReviewRequired
 from procure_pilot.domain.models import (
     BudgetResource,
     Candidate,
@@ -44,6 +45,7 @@ from procure_pilot.services.context import (
     MemoryReader,
 )
 from procure_pilot.services.costing import calculate_landed_cost
+from procure_pilot.services.knowledge import PolicyKnowledgeService
 from procure_pilot.services.memory_registry import MemoryRegistry
 
 QUESTION_LABELS = {
@@ -77,6 +79,7 @@ class ProcurementEngine:
         memory_repository: MemoryReader | None = None,
         context_policy: ContextPolicy = DEFAULT_CONTEXT_POLICY,
         memory_registry: MemoryRegistry | None = None,
+        knowledge_service: PolicyKnowledgeService | None = None,
     ) -> None:
         self.catalog = catalog
         self.enterprise = enterprise
@@ -86,6 +89,7 @@ class ProcurementEngine:
         self.memory_repository = memory_repository
         self.context_policy = context_policy
         self.memory_registry = memory_registry
+        self.knowledge_service = knowledge_service
         self.context_assembler = ContextAssembler(
             memory_repository,
             policy=context_policy,
@@ -288,6 +292,25 @@ class ProcurementEngine:
             warranty_months=refreshed_offer.variant.warranty_months,
             condition=refreshed_offer.variant.condition,
         )
+        try:
+            policy_knowledge_refs = self._policy_knowledge_refs(run)
+        except PolicyKnowledgeReviewRequired as exc:
+            self._restore_waiting_confirmation(
+                run,
+                reason="policy knowledge could not be safely revalidated",
+            )
+            self.harness.trace(
+                run,
+                actor="Policy Knowledge Service",
+                kind="KNOWLEDGE",
+                name="knowledge.policy_review_required",
+                detail={"code": exc.code},
+                status="REQUIRES_REVIEW",
+            )
+            message = "制度条款缺失或版本不一致，未创建草稿，需要人工复核制度知识。"
+            run.messages.append(Message(role="assistant", content=message))
+            self.repository.save(run)
+            return RunResponse(run=run, assistant_message=message)
         if refreshed.decision == PolicyDecision.DENY:
             self._restore_waiting_confirmation(
                 run,
@@ -327,6 +350,7 @@ class ProcurementEngine:
                         *refreshed_offer.match_decision.evidence_refs,
                         refreshed_offer.evidence.evidence_id,
                         *refreshed.evidence_refs,
+                        *policy_knowledge_refs,
                     ]
                 )
             )
@@ -386,6 +410,7 @@ class ProcurementEngine:
                     *refreshed_offer.match_decision.evidence_refs,
                     refreshed_offer.evidence.evidence_id,
                     *refreshed.evidence_refs,
+                    *policy_knowledge_refs,
                 ]
             )
         )
@@ -535,6 +560,24 @@ class ProcurementEngine:
         assert requirement.minimum_ram_gb is not None
         assert requirement.minimum_storage_gb is not None
         employee = self.enterprise.identity(run.tenant_id, run.user_id)
+        try:
+            policy_knowledge_refs = self._policy_knowledge_refs(run)
+        except PolicyKnowledgeReviewRequired as exc:
+            self.harness.trace(
+                run,
+                actor="Policy Knowledge Service",
+                kind="KNOWLEDGE",
+                name="knowledge.policy_review_required",
+                detail={"code": exc.code},
+                status="REQUIRES_REVIEW",
+            )
+            self.harness.transition(
+                run,
+                RunState.FAILED,
+                reason="policy knowledge requires human review",
+            )
+            run.error = "制度条款缺失或版本不一致，需要人工复核制度知识"
+            return RunResponse(run=run, assistant_message=run.error)
         cached_results = agent_context.catalog_results if agent_context else {}
         tasks = {
             provider: asyncio.create_task(
@@ -671,6 +714,7 @@ class ProcurementEngine:
                                 *offer.match_decision.evidence_refs,
                                 offer.evidence.evidence_id,
                                 *policy.evidence_refs,
+                                *policy_knowledge_refs,
                             ]
                         )
                     ),
@@ -839,6 +883,31 @@ class ProcurementEngine:
             },
         )
         return context
+
+    def _policy_knowledge_refs(self, run: ProcurementRun) -> list[str]:
+        if self.knowledge_service is None:
+            return []
+        expected_version = str(self.enterprise.policy["version"])
+        evidence = self.knowledge_service.verify_policy_evidence(
+            tenant_id=run.tenant_id,
+            category_id="CAT-COMPUTER-LAPTOP",
+            query="研发 笔记本 内存 保修 全新 预算 审批 供应商 准入 发票",
+            expected_policy_version=expected_version,
+        )
+        if evidence is None:
+            return []
+        refs = [citation.source_ref for citation in evidence.citations]
+        self.harness.trace(
+            run,
+            actor="Policy Knowledge Service",
+            kind="KNOWLEDGE",
+            name="knowledge.policy_evidence_resolved",
+            detail={
+                "policy_version": evidence.policy_version,
+                "citation_refs": refs,
+            },
+        )
+        return refs
 
     def _budget_stopped(self, run: ProcurementRun, exc: HarnessBudgetExceeded) -> RunResponse:
         message = (

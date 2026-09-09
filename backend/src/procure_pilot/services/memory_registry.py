@@ -235,9 +235,7 @@ class MemoryRegistry:
         return result
 
     @classmethod
-    def _build_category_aliases(
-        cls, categories: list[CategoryDefinition]
-    ) -> dict[str, set[str]]:
+    def _build_category_aliases(cls, categories: list[CategoryDefinition]) -> dict[str, set[str]]:
         result: dict[str, set[str]] = {}
         for category in categories:
             values = [

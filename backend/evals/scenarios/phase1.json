@@ -37,5 +37,12 @@
   {"case_id":"memory-001","category":"memory_runtime","description":"个人长期记忆只对同租户本人可见","expected":"PERSONAL_MEMORY_TENANT_OWNER_SCOPE","requirement_ids":[],"acceptance_refs":["M4-MEMORY-PRIVACY"]},
   {"case_id":"memory-002","category":"memory_runtime","description":"团队记忆对同团队可见但只有创建者可修改","expected":"TEAM_MEMORY_READ_OWNER_WRITE","requirement_ids":[],"acceptance_refs":["M4-MEMORY-AUTHORIZATION"]},
   {"case_id":"memory-003","category":"memory_runtime","description":"长期记忆可修改删除且全生命周期可审计","expected":"MEMORY_EDIT_DELETE_AUDIT","requirement_ids":[],"acceptance_refs":["M4-MEMORY-LIFECYCLE"]},
+  {"case_id":"memory-004","category":"memory_candidate","description":"候选未经确认不写长期记忆，接受后创建Consent支撑的记忆","expected":"CANDIDATE_REQUIRES_EXPLICIT_CONFIRMATION","requirement_ids":["MEM-02","MEM-03"]},
+  {"case_id":"memory-005","category":"memory_candidate","description":"临时需求、助手建议和含凭证文本不能生成长期记忆候选","expected":"TRANSIENT_AND_SENSITIVE_CONTENT_FILTERED","requirement_ids":["MEM-02","MEM-06"]},
+  {"case_id":"memory-006","category":"memory_candidate","description":"候选提议与接受幂等且跨租户不可读取","expected":"CANDIDATE_TENANT_AND_IDEMPOTENCY_GUARD","requirement_ids":["MEM-05"]},
+  {"case_id":"knowledge-001","category":"policy_knowledge","description":"制度按结构切块、发布后可全文检索且返回版本化引用","expected":"PUBLISHED_FTS_WITH_CITATIONS","requirement_ids":[],"acceptance_refs":["M4-RAG-CITATION"]},
+  {"case_id":"knowledge-002","category":"policy_knowledge","description":"制度检索执行tenant、品类和生效时间过滤","expected":"TENANT_CATEGORY_EFFECTIVE_FILTER","requirement_ids":[],"acceptance_refs":["M4-RAG-ISOLATION"]},
+  {"case_id":"knowledge-003","category":"policy_knowledge","description":"制度文档版本与Policy-as-Code不一致时一票否决","expected":"POLICY_VERSION_CONFLICT_VETO","requirement_ids":["GOV-03"],"acceptance_refs":["M4-RAG-VERSION"]},
+  {"case_id":"knowledge-004","category":"policy_knowledge","description":"匹配制度条款作为引用进入推荐证据但不替代规则裁决","expected":"ENGINE_POLICY_CITATION_GROUNDING","requirement_ids":["GOV-03"],"acceptance_refs":["M4-RAG-ENGINE"]},
   {"case_id":"replay-001","category":"fault_safety","description":"同输入确定性回放","expected":"ZERO_DIFF","requirement_ids":["OPS-05"]}
 ]

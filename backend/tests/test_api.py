@@ -232,6 +232,114 @@ def test_memory_api_requires_consent_and_supports_edit_delete(tmp_path):
     assert [event["action"] for event in audit.json()] == ["CREATED", "UPDATED", "DELETED"]
 
 
+def test_memory_candidate_api_requires_review_and_is_idempotent(tmp_path):
+    database_engine = create_engine(f"sqlite:///{tmp_path / 'memory-candidate-api.db'}")
+    Base.metadata.create_all(database_engine)
+    memory_repository = SqlAlchemyMemoryRepository("sqlite://", engine=database_engine)
+    client = TestClient(
+        create_app(
+            settings=Settings(run_store_path=tmp_path / "candidate-runs.json"),
+            engine=make_engine(),
+            memory_repository=memory_repository,
+        )
+    )
+    started = client.post(
+        "/api/runs",
+        headers=CN_SESSION,
+        json={"message": "采购20台开发笔记本，单台预算8000元，两周内到货"},
+    )
+    run_id = started.json()["run"]["run_id"]
+    continued = client.post(
+        f"/api/runs/{run_id}/messages",
+        headers=CN_SESSION,
+        json={
+            "message": (
+                "预算含税，送雅加达，最低32GB和1TB。"
+                "以后采购开发笔记本默认至少32GB内存和1TB SSD，优先 Lenovo。"
+            )
+        },
+    )
+    assert continued.json()["run"]["state"] == "WAITING_CONFIRMATION"
+    confirmed = client.post(
+        f"/api/runs/{run_id}/confirm",
+        headers=CN_SESSION,
+        json={"action_token": continued.json()["run"]["action_token"]},
+    )
+    assert confirmed.json()["run"]["state"] == "DRAFT_CREATED"
+    assert any(
+        event["name"] == "memory.candidate_created" for event in confirmed.json()["run"]["trace"]
+    )
+
+    candidates_response = client.get(
+        f"/api/memory-candidates?status=PENDING&origin_run_id={run_id}",
+        headers=CN_SESSION,
+    )
+    assert candidates_response.status_code == 200
+    candidates = candidates_response.json()
+    assert {item["key"] for item in candidates} == {
+        "procurement.category.minimum_ram_gb",
+        "procurement.category.minimum_storage_gb",
+        "procurement.category.preferred_brand",
+    }
+    assert client.get("/api/memories", headers=CN_SESSION).json() == []
+
+    candidate = next(
+        item for item in candidates if item["key"] == "procurement.category.preferred_brand"
+    )
+    denied = client.post(
+        f"/api/memory-candidates/{candidate['candidate_id']}/accept",
+        headers=CN_SESSION,
+        json={
+            "request_id": "candidate-api-accept-001",
+            "displayed_text": candidate["proposed_content"],
+            "consent_acknowledged": False,
+        },
+    )
+    assert denied.status_code == 422
+    cross_tenant = client.post(
+        f"/api/memory-candidates/{candidate['candidate_id']}/accept",
+        headers=ID_SESSION,
+        json={
+            "request_id": "candidate-api-cross-tenant",
+            "displayed_text": candidate["proposed_content"],
+            "consent_acknowledged": True,
+        },
+    )
+    assert cross_tenant.status_code == 403
+
+    accepted = client.post(
+        f"/api/memory-candidates/{candidate['candidate_id']}/accept",
+        headers=CN_SESSION,
+        json={
+            "request_id": "candidate-api-accept-001",
+            "displayed_text": candidate["proposed_content"],
+            "consent_acknowledged": True,
+        },
+    )
+    repeated = client.post(
+        f"/api/memory-candidates/{candidate['candidate_id']}/accept",
+        headers=CN_SESSION,
+        json={
+            "request_id": "candidate-api-accept-001",
+            "displayed_text": candidate["proposed_content"],
+            "consent_acknowledged": True,
+        },
+    )
+    assert accepted.status_code == 200
+    assert repeated.json()["memory_id"] == accepted.json()["memory_id"]
+    assert accepted.json()["source_ref"] in candidate["source_message_refs"]
+
+    rejected_candidate = next(
+        item for item in candidates if item["key"] == "procurement.category.minimum_storage_gb"
+    )
+    rejected = client.post(
+        f"/api/memory-candidates/{rejected_candidate['candidate_id']}/reject",
+        headers=CN_SESSION,
+        json={"request_id": "candidate-api-reject-001"},
+    )
+    assert rejected.json()["status"] == "REJECTED"
+
+
 def test_memory_registry_endpoints_and_team_write_authorization(tmp_path):
     database_engine = create_engine(f"sqlite:///{tmp_path / 'memory-registry-api.db'}")
     Base.metadata.create_all(database_engine)
@@ -254,8 +362,7 @@ def test_memory_registry_endpoints_and_team_write_authorization(tmp_path):
         for item in definitions.json()["definitions"]
     )
     assert any(
-        item["category_id"] == "CAT-COMPUTER-LAPTOP"
-        for item in categories.json()["categories"]
+        item["category_id"] == "CAT-COMPUTER-LAPTOP" for item in categories.json()["categories"]
     )
     assert any(item["tag_id"] == "TAG-DEVELOPMENT" for item in tags.json()["tags"])
     resolved = client.get("/api/categories?query=notebook", headers=CN_SESSION)
@@ -308,3 +415,16 @@ def test_memory_api_is_disabled_for_json_repository(tmp_path):
     response = client.get("/api/memories", headers=CN_SESSION)
 
     assert response.status_code == 503
+    assert client.get("/api/memory-candidates", headers=CN_SESSION).status_code == 503
+    assert (
+        client.post(
+            "/api/memory-candidates/missing/accept",
+            headers=CN_SESSION,
+            json={
+                "request_id": "unavailable-candidate-001",
+                "displayed_text": "候选不可用",
+                "consent_acknowledged": True,
+            },
+        ).status_code
+        == 503
+    )

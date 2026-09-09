@@ -69,6 +69,14 @@ class FixtureEnterpriseGateway:
                 location="Jakarta",
                 roles=("EMPLOYEE",),
             ),
+            ("demo_cn", "knowledge_admin_001"): EmployeeContext(
+                tenant_id="demo_cn",
+                user_id="knowledge_admin_001",
+                department="Procurement",
+                cost_center="rd_jakarta",
+                location="Shanghai",
+                roles=("KNOWLEDGE_STEWARD",),
+            ),
         }
         self.budgets = {"rd_jakarta": BudgetSnapshot("rd_jakarta", Decimal("220000"))}
         self.vendors = {

@@ -243,11 +243,14 @@ def test_repository_excludes_future_and_expired_memories(repository):
     repository.create(future, actor_user_id="employee_001")
     repository.create(expired, actor_user_id="employee_001")
 
-    assert repository.list(
-        tenant_id="demo_cn",
-        user_id="employee_001",
-        team_id="R&D",
-    ) == []
+    assert (
+        repository.list(
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            team_id="R&D",
+        )
+        == []
+    )
 
 
 def test_structured_memory_projection_uses_registry_agent_and_category_rules(
