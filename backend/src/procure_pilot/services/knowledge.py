@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import uuid4
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from procure_pilot.domain.knowledge import (
     KNOWLEDGE_EMBEDDING_DIMENSIONS,
@@ -24,6 +24,7 @@ from procure_pilot.domain.knowledge import (
 )
 from procure_pilot.domain.models import utc_now
 from procure_pilot.persistence.knowledge_repository import SqlAlchemyKnowledgeRepository
+from procure_pilot.services.document_ingestion import ParsedPolicyFile, PolicyFileParser
 from procure_pilot.services.embeddings import EmbeddingProvider, HashingEmbeddingProvider
 
 KNOWLEDGE_WRITE_ROLES = frozenset({"ADMIN", "KNOWLEDGE_STEWARD", "PROCUREMENT_SPECIALIST"})
@@ -51,6 +52,17 @@ class KnowledgeIngestResult(BaseModel):
     document: KnowledgeDocument
     version: KnowledgeDocumentVersion
     chunk_count: int
+
+
+class EmbeddingBackfillResult(BaseModel):
+    tenant_id: str
+    category_id: str | None = None
+    embedding_model: str
+    pending_before: int = Field(ge=0)
+    updated_chunks: int = Field(default=0, ge=0)
+    pending_after: int = Field(ge=0)
+    completed_batches: int = Field(default=0, ge=0)
+    dry_run: bool = False
 
 
 @dataclass
@@ -170,14 +182,19 @@ class PolicyKnowledgeService:
         repository: SqlAlchemyKnowledgeRepository,
         *,
         embedding_provider: EmbeddingProvider | None = None,
+        file_parser: PolicyFileParser | None = None,
     ) -> None:
         self.repository = repository
         self.embedding_provider = embedding_provider or HashingEmbeddingProvider()
+        self.file_parser = file_parser or PolicyFileParser()
         if self.embedding_provider.dimensions != KNOWLEDGE_EMBEDDING_DIMENSIONS:
             raise ValueError(
                 "Embedding provider dimensions must match the knowledge vector schema "
                 f"({KNOWLEDGE_EMBEDDING_DIMENSIONS})"
             )
+
+    def require_write_access(self, roles: tuple[str, ...]) -> None:
+        self._authorize_write(roles)
 
     def ingest(
         self,
@@ -192,6 +209,8 @@ class PolicyKnowledgeService:
         policy_version: str,
         effective_from: datetime,
         raw_content: str,
+        source_file: ParsedPolicyFile | None = None,
+        source_blob: bytes | None = None,
     ) -> KnowledgeIngestResult:
         self._authorize_write(roles)
         if effective_from.tzinfo is None or effective_from.utcoffset() is None:
@@ -225,6 +244,12 @@ class PolicyKnowledgeService:
             effective_from=effective_from,
             raw_content=raw_content,
             content_hash=hashlib.sha256(raw_content.encode("utf-8")).hexdigest(),
+            source_file_name=source_file.file_name if source_file else None,
+            source_media_type=source_file.media_type if source_file else None,
+            source_file_hash=source_file.file_hash if source_file else None,
+            source_file_size=source_file.file_size if source_file else None,
+            parser_version=source_file.parser_version if source_file else None,
+            extraction_metadata=source_file.extraction_metadata if source_file else {},
             status=KnowledgeVersionStatus.DRAFT,
             created_by=actor_user_id,
             created_at=now,
@@ -260,11 +285,53 @@ class PolicyKnowledgeService:
                 zip(chunk_values, embeddings, strict=True)
             )
         ]
-        saved_document, saved_version = self.repository.create_draft(document, version, chunks)
+        saved_document, saved_version = self.repository.create_draft(
+            document,
+            version,
+            chunks,
+            source_blob=source_blob,
+        )
         return KnowledgeIngestResult(
             document=saved_document,
             version=saved_version,
             chunk_count=len(chunks),
+        )
+
+    def ingest_file(
+        self,
+        *,
+        tenant_id: str,
+        actor_user_id: str,
+        roles: tuple[str, ...],
+        document_key: str,
+        title: str,
+        category_id: str,
+        source_uri: str,
+        policy_version: str,
+        effective_from: datetime,
+        file_name: str,
+        media_type: str,
+        file_data: bytes,
+    ) -> KnowledgeIngestResult:
+        self._authorize_write(roles)
+        parsed = self.file_parser.parse(
+            file_data,
+            file_name=file_name,
+            media_type=media_type,
+        )
+        return self.ingest(
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            roles=roles,
+            document_key=document_key,
+            title=title,
+            category_id=category_id,
+            source_uri=source_uri,
+            policy_version=policy_version,
+            effective_from=effective_from,
+            raw_content=parsed.raw_content,
+            source_file=parsed,
+            source_blob=file_data,
         )
 
     def publish(
@@ -530,6 +597,88 @@ class PolicyKnowledgeService:
                 embedding_model=self.embedding_provider.model,
             )
         return len(rows)
+
+    def backfill_embeddings(
+        self,
+        *,
+        tenant_id: str,
+        category_id: str | None = None,
+        batch_size: int = 100,
+        max_batches: int | None = None,
+        dry_run: bool = False,
+    ) -> EmbeddingBackfillResult:
+        if batch_size < 1 or batch_size > 1_000:
+            raise ValueError("Knowledge backfill batch size must be between 1 and 1000")
+        if max_batches is not None and max_batches < 1:
+            raise ValueError("Knowledge backfill max_batches must be positive")
+        model = self.embedding_provider.model
+        pending_before = self.repository.count_embedding_backfill(
+            tenant_id=tenant_id,
+            embedding_model=model,
+            category_id=category_id,
+        )
+        if dry_run:
+            return EmbeddingBackfillResult(
+                tenant_id=tenant_id,
+                category_id=category_id,
+                embedding_model=model,
+                pending_before=pending_before,
+                pending_after=pending_before,
+                dry_run=True,
+            )
+
+        updated = 0
+        completed_batches = 0
+        while max_batches is None or completed_batches < max_batches:
+            rows = self.repository.chunks_for_embedding_backfill(
+                tenant_id=tenant_id,
+                embedding_model=model,
+                category_id=category_id,
+                limit=batch_size,
+            )
+            if not rows:
+                break
+            inputs = [
+                f"{row.document.title}\n{row.chunk.heading}\n{row.chunk.content}" for row in rows
+            ]
+            embeddings = self.embedding_provider.embed(inputs)
+            if len(embeddings) != len(rows) or any(
+                len(value) != self.embedding_provider.dimensions for value in embeddings
+            ):
+                raise ValueError("Embedding provider returned an invalid backfill batch shape")
+            self.repository.replace_chunk_indexes_batch(
+                [
+                    (
+                        row.chunk.chunk_id,
+                        build_search_text(
+                            row.document.title,
+                            row.chunk.heading,
+                            row.chunk.content,
+                        ),
+                        embedding,
+                        model,
+                    )
+                    for row, embedding in zip(rows, embeddings, strict=True)
+                ],
+                tenant_id=tenant_id,
+            )
+            updated += len(rows)
+            completed_batches += 1
+
+        pending_after = self.repository.count_embedding_backfill(
+            tenant_id=tenant_id,
+            embedding_model=model,
+            category_id=category_id,
+        )
+        return EmbeddingBackfillResult(
+            tenant_id=tenant_id,
+            category_id=category_id,
+            embedding_model=model,
+            pending_before=pending_before,
+            updated_chunks=updated,
+            pending_after=pending_after,
+            completed_batches=completed_batches,
+        )
 
     @staticmethod
     def _authorize_write(roles: tuple[str, ...]) -> None:

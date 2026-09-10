@@ -41,21 +41,22 @@
 - 已增加定义版本、稳定品类 ID、正式 Tag ID、有效期、置信度和 metadata；
 - Consent 与记忆在同一事务写入，重复请求由请求 ID 和命令指纹保护；
 - 普通员工不能写 TEAM 记忆；新确认值会将旧值标记为 `SUPERSEDED`；
-- 已完成上下文、Registry、候选确认和制度混合检索专项测试，总后端回归为 111/111。
-- 已建立独立 Knowledge Document/Version/Chunk 表和 Alembic `20260909_0006`；
+- 已完成上下文、Registry、候选确认和制度文件/混合检索专项测试，总后端回归为 117/117；
+- 已建立独立 Knowledge Document/Version/Chunk 表和 Alembic `20260910_0007`；
 - 已实现原文哈希、页码噪声清理、标题/编号条款优先切块和 CJK unigram/bigram 索引文本；
 - 已实现治理角色导入/发布/重建索引 API，以及 tenant/category/effective/version 过滤；
 - PostgreSQL 使用 `to_tsvector('simple', search_text)` GIN 索引，SQLite 提供测试兼容路径；
 - 检索返回条款级版本化引用，Engine 在推荐与确认前校验引用版本与 Policy-as-Code；
 - 已实现 PostgreSQL `vector(256)`、HNSW cosine 索引、FTS/vector 双路 Top-K、RRF（k=60）和确定性重排；
 - 每条引用返回 FTS/vector rank、RRF、向量相似度、重排分与召回通道；向量生成失败降级 FTS；
-- 5 条 fixture 标签已计算 Hit@3、MRR、无答案准确率与双路信号覆盖率。
+- 5 条 development + 7 条 holdout fixture 标签已分别计算 Hit@3、MRR、无答案准确率与双路信号覆盖率；
+- 已支持 PDF/DOCX/TXT/Markdown、安全归档、扫描 PDF OCR 接口、OpenAI embedding provider 和 tenant-scoped 可恢复回填；
 - 已发布知识库无答案、无有效版本或版本冲突时安全停止；未启用知识库的租户兼容既有规则引用。
 
 ### 2.2 当前尚未实现
 
-- 默认 embedding 是离线哈希 n-gram 基线，没有接真实语义 embedding 或 cross-encoder rerank；
-- 没有 PDF/DOCX、复杂表格和扫描件 OCR ingestion；
+- 默认 embedding 仍是离线哈希 n-gram；OpenAI provider 已接入，但没有真实企业语料上的质量/费用基线或 cross-encoder rerank；
+- 已覆盖 DOCX 常规表格和单页扫描 PDF，尚未覆盖复杂合并单元格、多栏 PDF、手写件和 OCR 人工抽检；
 - 没有大规模真实制度 holdout 上的 Recall@K、MRR、citation precision/recall 基线；
 - 没有物理清除、缓存/向量副本删除和保留期任务；
 - Registry 当前是受版本控制的 YAML，还没有接企业 PIM/ERP 同步表；Tag 当前保存为正式 ID 数组，尚未拆成关联表。
@@ -1186,7 +1187,7 @@ M2.2 已补充 `effective_at` 和 `expires_at`；当前 Repository 与 ContextAs
 4. tenant/category/effective/version 过滤（已完成）；
 5. RAG 引用与 Policy-as-Code 版本一致性（已完成）；
 6. 无答案、过期、冲突进入安全停止或人工审核（已完成首片）。
-7. PDF/DOCX/OCR、真实 embedding、离线回填与大规模 holdout（待完成）。
+7. PDF/DOCX/OCR、真实 embedding、离线回填与 development/holdout 分层（已完成最小纵向切片；大规模真实语料待建设）。
 
 ### M4：持久化 Context 和生产强化
 

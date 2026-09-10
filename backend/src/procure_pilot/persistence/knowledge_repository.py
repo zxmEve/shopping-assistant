@@ -30,6 +30,12 @@ class RankedKnowledgeChunk:
     score: float
 
 
+@dataclass(frozen=True)
+class KnowledgeIndexSource:
+    chunk: KnowledgeChunk
+    document: KnowledgeDocument
+
+
 class SqlAlchemyKnowledgeRepository:
     """Tenant-scoped storage for governed, versioned policy knowledge."""
 
@@ -44,6 +50,8 @@ class SqlAlchemyKnowledgeRepository:
         document: KnowledgeDocument,
         version: KnowledgeDocumentVersion,
         chunks: list[KnowledgeChunk],
+        *,
+        source_blob: bytes | None = None,
     ) -> tuple[KnowledgeDocument, KnowledgeDocumentVersion]:
         with self.session_factory.begin() as session:
             record = session.execute(
@@ -74,7 +82,7 @@ class SqlAlchemyKnowledgeRepository:
                     record or self._document_record(document)
                 ), self._version_domain(duplicate)
 
-            session.add(self._version_record(version))
+            session.add(self._version_record(version, source_blob=source_blob))
             # Records intentionally have no ORM relationships. Flush the parents
             # explicitly so PostgreSQL foreign keys do not depend on mapper ordering.
             session.flush()
@@ -454,6 +462,109 @@ class SqlAlchemyKnowledgeRepository:
             if result.rowcount != 1:
                 raise PermissionError("Knowledge chunk is not accessible in this tenant")
 
+    def replace_chunk_indexes_batch(
+        self,
+        values: list[tuple[str, str, list[float], str]],
+        *,
+        tenant_id: str,
+    ) -> None:
+        with self.session_factory.begin() as session:
+            for chunk_id, search_text, embedding, embedding_model in values:
+                result = session.execute(
+                    update(KnowledgeChunkRecord)
+                    .where(
+                        KnowledgeChunkRecord.chunk_id == chunk_id,
+                        KnowledgeChunkRecord.tenant_id == tenant_id,
+                    )
+                    .values(
+                        search_text=search_text,
+                        embedding=embedding,
+                        embedding_model=embedding_model,
+                    )
+                )
+                if result.rowcount != 1:
+                    raise PermissionError("Knowledge chunk is not accessible in this tenant")
+
+    def chunks_for_embedding_backfill(
+        self,
+        *,
+        tenant_id: str,
+        embedding_model: str,
+        category_id: str | None,
+        limit: int,
+    ) -> list[KnowledgeIndexSource]:
+        statement = (
+            select(KnowledgeChunkRecord, KnowledgeDocumentRecord)
+            .join(
+                KnowledgeDocumentVersionRecord,
+                KnowledgeDocumentVersionRecord.version_id == KnowledgeChunkRecord.version_id,
+            )
+            .join(
+                KnowledgeDocumentRecord,
+                KnowledgeDocumentRecord.document_id == KnowledgeChunkRecord.document_id,
+            )
+            .where(
+                KnowledgeChunkRecord.tenant_id == tenant_id,
+                KnowledgeDocumentVersionRecord.tenant_id == tenant_id,
+                KnowledgeDocumentRecord.tenant_id == tenant_id,
+                KnowledgeDocumentRecord.status == KnowledgeDocumentStatus.PUBLISHED.value,
+                KnowledgeDocumentVersionRecord.status == KnowledgeVersionStatus.PUBLISHED.value,
+                or_(
+                    KnowledgeChunkRecord.embedding.is_(None),
+                    KnowledgeChunkRecord.embedding_model.is_(None),
+                    KnowledgeChunkRecord.embedding_model != embedding_model,
+                ),
+            )
+            .order_by(KnowledgeChunkRecord.chunk_id)
+            .limit(limit)
+        )
+        if category_id is not None:
+            statement = statement.where(KnowledgeDocumentRecord.category_id == category_id)
+        with self.session_factory() as session:
+            rows = session.execute(statement).all()
+        return [
+            KnowledgeIndexSource(
+                chunk=self._chunk_domain(chunk),
+                document=self._document_domain(document),
+            )
+            for chunk, document in rows
+        ]
+
+    def count_embedding_backfill(
+        self,
+        *,
+        tenant_id: str,
+        embedding_model: str,
+        category_id: str | None,
+    ) -> int:
+        statement = (
+            select(func.count(KnowledgeChunkRecord.chunk_id))
+            .join(
+                KnowledgeDocumentVersionRecord,
+                KnowledgeDocumentVersionRecord.version_id == KnowledgeChunkRecord.version_id,
+            )
+            .join(
+                KnowledgeDocumentRecord,
+                KnowledgeDocumentRecord.document_id == KnowledgeChunkRecord.document_id,
+            )
+            .where(
+                KnowledgeChunkRecord.tenant_id == tenant_id,
+                KnowledgeDocumentVersionRecord.tenant_id == tenant_id,
+                KnowledgeDocumentRecord.tenant_id == tenant_id,
+                KnowledgeDocumentRecord.status == KnowledgeDocumentStatus.PUBLISHED.value,
+                KnowledgeDocumentVersionRecord.status == KnowledgeVersionStatus.PUBLISHED.value,
+                or_(
+                    KnowledgeChunkRecord.embedding.is_(None),
+                    KnowledgeChunkRecord.embedding_model.is_(None),
+                    KnowledgeChunkRecord.embedding_model != embedding_model,
+                ),
+            )
+        )
+        if category_id is not None:
+            statement = statement.where(KnowledgeDocumentRecord.category_id == category_id)
+        with self.session_factory() as session:
+            return int(session.execute(statement).scalar_one())
+
     def delete_draft_chunks(self, version_id: str, *, tenant_id: str) -> None:
         with self.session_factory.begin() as session:
             version = session.execute(
@@ -476,8 +587,13 @@ class SqlAlchemyKnowledgeRepository:
         return KnowledgeDocumentRecord(**value.model_dump(mode="python"))
 
     @staticmethod
-    def _version_record(value: KnowledgeDocumentVersion) -> KnowledgeDocumentVersionRecord:
-        return KnowledgeDocumentVersionRecord(**value.model_dump(mode="python"))
+    def _version_record(
+        value: KnowledgeDocumentVersion, *, source_blob: bytes | None = None
+    ) -> KnowledgeDocumentVersionRecord:
+        return KnowledgeDocumentVersionRecord(
+            **value.model_dump(mode="python"),
+            source_blob=source_blob,
+        )
 
     @staticmethod
     def _chunk_record(value: KnowledgeChunk) -> KnowledgeChunkRecord:
@@ -510,6 +626,12 @@ class SqlAlchemyKnowledgeRepository:
             effective_to=record.effective_to,
             raw_content=record.raw_content,
             content_hash=record.content_hash,
+            source_file_name=record.source_file_name,
+            source_media_type=record.source_media_type,
+            source_file_hash=record.source_file_hash,
+            source_file_size=record.source_file_size,
+            parser_version=record.parser_version,
+            extraction_metadata=record.extraction_metadata or {},
             status=record.status,
             published_at=record.published_at,
             created_by=record.created_by,

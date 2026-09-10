@@ -4,7 +4,9 @@ import hashlib
 import re
 import unicodedata
 from collections.abc import Sequence
-from typing import Protocol
+from typing import Any, Protocol
+
+from openai import OpenAI
 
 from procure_pilot.domain.knowledge import KNOWLEDGE_EMBEDDING_DIMENSIONS
 
@@ -65,3 +67,60 @@ class HashingEmbeddingProvider:
                     for index in range(max(0, len(sequence) - size + 1))
                 )
         return features
+
+
+class OpenAIEmbeddingProvider:
+    """Hosted semantic embeddings with a stable, storage-safe model identity."""
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        api_model: str = "text-embedding-3-small",
+        dimensions: int = KNOWLEDGE_EMBEDDING_DIMENSIONS,
+        base_url: str | None = None,
+        batch_size: int = 64,
+        timeout_seconds: float = 30.0,
+        client: Any | None = None,
+    ) -> None:
+        if not api_key and client is None:
+            raise ValueError("An embedding API key is required for the OpenAI provider")
+        if dimensions != KNOWLEDGE_EMBEDDING_DIMENSIONS:
+            raise ValueError(
+                f"OpenAI embedding dimensions must be {KNOWLEDGE_EMBEDDING_DIMENSIONS}"
+            )
+        if batch_size < 1 or batch_size > 2048:
+            raise ValueError("Embedding batch size must be between 1 and 2048")
+        self.api_model = api_model
+        self.dimensions = dimensions
+        self.batch_size = batch_size
+        self.model = f"openai:{api_model}:d{dimensions}"
+        self.client = client or OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout_seconds,
+            max_retries=2,
+        )
+
+    def embed(self, texts: Sequence[str]) -> list[list[float]]:
+        values = list(texts)
+        if not values:
+            return []
+        embeddings: list[list[float]] = []
+        for start in range(0, len(values), self.batch_size):
+            batch = values[start : start + self.batch_size]
+            response = self.client.embeddings.create(
+                input=batch,
+                model=self.api_model,
+                dimensions=self.dimensions,
+                encoding_format="float",
+            )
+            ordered = sorted(response.data, key=lambda item: item.index)
+            if [item.index for item in ordered] != list(range(len(batch))):
+                raise ValueError("Embedding provider returned invalid item indexes")
+            embeddings.extend([list(item.embedding) for item in ordered])
+        if len(embeddings) != len(values) or any(
+            len(value) != self.dimensions for value in embeddings
+        ):
+            raise ValueError("Embedding provider returned an invalid batch shape")
+        return embeddings

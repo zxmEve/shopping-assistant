@@ -7,11 +7,17 @@ dependencies = [
   "alembic>=1.14.0,<2",
   "fastapi>=0.115.0,<1",
   "httpx>=0.28.0,<1",
+  "openai>=2.0.0,<4",
   "openai-agents>=0.7.0,<1",
+  "pillow>=11.0.0,<13",
   "pgvector>=0.4.0,<1",
   "psycopg[binary]>=3.2.0,<4",
   "pydantic>=2.10.0,<3",
   "pydantic-settings>=2.7.0,<3",
+  "pypdf>=5.0.0,<7",
+  "pypdfium2>=4.30.0,<6",
+  "python-docx>=1.2.0,<2",
+  "python-multipart>=0.0.20,<1",
   "sqlalchemy>=2.0.0,<3",
   "pyyaml>=6.0.2,<7",
   "uvicorn[standard]>=0.34.0,<1",
@@ -28,6 +34,7 @@ dev = [
 procure-pilot = "procure_pilot.api.app:run"
 procure-eval = "procure_pilot.evals.runner:main"
 procure-live-eval = "procure_pilot.evals.live_runner:main"
+procure-knowledge-backfill = "procure_pilot.knowledge_backfill:main"
 
 [build-system]
 requires = ["hatchling>=1.27"]

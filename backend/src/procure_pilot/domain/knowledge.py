@@ -4,6 +4,7 @@ import math
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -54,6 +55,12 @@ class KnowledgeDocumentVersion(BaseModel):
     effective_to: datetime | None = None
     raw_content: str
     content_hash: str
+    source_file_name: str | None = None
+    source_media_type: str | None = None
+    source_file_hash: str | None = None
+    source_file_size: int | None = Field(default=None, ge=0)
+    parser_version: str | None = None
+    extraction_metadata: dict[str, Any] = Field(default_factory=dict)
     status: KnowledgeVersionStatus = KnowledgeVersionStatus.DRAFT
     published_at: datetime | None = None
     created_by: str

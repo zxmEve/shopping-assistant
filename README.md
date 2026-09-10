@@ -1,6 +1,6 @@
 # ProcurePilot：企业采购决策与审批 Agent
 
-> 当前状态：运行时已收敛为 Requirement Agent 和 Sourcing Agent 两个模型角色。Agent Context、结构化记忆、记忆候选确认，以及制度 RAG 的 FTS + pgvector + RRF 混合检索均已完成。当前 111 个后端测试、47 个确定性评测通过；DeepSeek 双 Agent 12/12 smoke 已通过，×3 稳定性矩阵待运行。
+> 当前状态：运行时已收敛为 Requirement Agent 和 Sourcing Agent 两个模型角色。Agent Context、结构化记忆、记忆候选确认，以及制度 RAG 的文件解析、FTS + pgvector + RRF 混合检索均已完成。当前 117 个后端测试、47 个确定性评测通过；DeepSeek 双 Agent 12/12 smoke 已通过，×3 稳定性矩阵待运行。
 
 ProcurePilot 是一个面向企业员工、采购专员和审批人的 AI 采购助手。它将自然语言采购需求转化为结构化申请，主动补齐关键约束，并行查询多个合规来源，完成同款归一、到手成本计算、预算与制度校验、供应商风险检查，最终在人工确认后生成采购申请草稿。
 
@@ -59,7 +59,23 @@ make dev
 
 真实模型评测与 deterministic 报告分开保存。配置 Key 后，`make live-eval` 运行当前双 Agent 拓扑的 3 次完整闭环；`make live-eval-s3` 运行 12-case × 3-run smoke。报告写入 `backend/evals/reports/live/`；没有 Key 时命令会明确停止，不会生成伪造的 live 基线。真实评测会产生费用，应在确认预算后手动执行。
 
-当前双 Agent 代码基线为 111/111 后端测试通过，确定性评测为 47/47。双 Agent DeepSeek 12-case × 1 smoke 已 12/12 通过；此前五 Agent 和 direct-tools 报告只保留为历史记录，不能作为新拓扑发布证据。发布前仍需完成 12-case × 3 稳定性矩阵。
+制度文件默认使用离线可复现的哈希向量。启用 OpenAI embedding 和扫描 PDF OCR 后，可先预览再分批回填已发布条款：
+
+```bash
+export PROCURE_REPOSITORY_BACKEND=postgres
+export PROCURE_DATABASE_URL='postgresql+psycopg://...'
+export PROCURE_KNOWLEDGE_EMBEDDING_PROVIDER=openai
+export PROCURE_KNOWLEDGE_EMBEDDING_API_KEY='...'
+export PROCURE_KNOWLEDGE_OCR_PROVIDER=tesseract
+
+cd backend
+uv run procure-knowledge-backfill --tenant-id demo_cn --dry-run
+uv run procure-knowledge-backfill --tenant-id demo_cn --batch-size 64
+```
+
+embedding 使用独立密钥，不复用 Agent 模型密钥；`--max-batches` 可限制单次作业并从剩余旧模型 chunk 继续。文件上传接口是 `POST /internal/knowledge/files`，只允许知识治理角色。
+
+当前双 Agent 代码基线为 117/117 后端测试通过，确定性评测为 47/47。制度检索集包含 5 条开发标签和 7 条独立留出标签；这仍是小型 fixture 门禁。双 Agent DeepSeek 12-case × 1 smoke 已 12/12 通过；此前五 Agent 和 direct-tools 报告只保留为历史记录，不能作为新拓扑发布证据。发布前仍需完成 12-case × 3 稳定性矩阵。
 
 Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixture-session-cn-employee-001`。它用于证明客户端不能直接指定 tenant、用户或成本中心，不代表生产 SSO。
 
@@ -113,14 +129,15 @@ Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixtur
 - M2.2 结构化记忆：Registry 定义允许保存的 Key、Value Schema、品类和 Tag；歧义品类、未知 Tag、错误值和越权 TEAM 写入会被拒绝；Consent、请求幂等和版本替代在数据库事务中完成。
 - M2.3 记忆候选：仅从已完成 Run 的用户原话保守提取长期偏好；临时需求、助手建议和凭证不会生成候选；候选经用户接受后才复用 Consent 与幂等链路写入长期记忆，支持拒绝、过期、去重和冲突提示。
 - 制度 RAG 混合检索：制度原文按租户、品类、版本和生效期独立治理；PostgreSQL GIN FTS 与 pgvector HNSW 各取 Top-K，经 RRF 融合和确定性重排返回条款级引用；每条引用暴露通道、rank、相似度与融合分，向量服务故障时降级到 FTS；引用与 Policy-as-Code 版本不一致或无有效条款时安全停止。
+- 文件与向量管线：支持 PDF、DOCX、UTF-8 文本和 Markdown 上传，保留不可变原文件、SHA-256、解析器版本与提取统计；DOCX 表格转为结构化 Markdown，扫描 PDF 可显式接 Tesseract OCR。embedding 可在离线哈希基线与独立密钥的 OpenAI provider 间切换，模型变更通过 tenant-scoped 分批回填任务恢复。
 - 写前重校验：Token 绑定需求版本、动作和报价快照；价格变化时展示 Diff 并要求重新确认。
 - 可重复评测：固定 seed、clock 和故障场景，生成 JSON/HTML 基线报告。
 
 ## 规划中的能力
 
 - 在受控预算下执行并归档双 Agent DeepSeek 12-case × 3 稳定性矩阵；
-- PDF/DOCX、复杂表格与扫描件 OCR ingestion，以及真实 embedding provider 和离线回填任务；
-- 扩大制度条款标注集，补 Recall@K、citation precision/recall 与真实语义模型对比；
+- 扩大到真实企业制度语料，补复杂合并表格、多栏 PDF 与 OCR 人工抽检；
+- 补 Recall@K、citation precision/recall、cross-encoder rerank 与真实语义模型对比；
 - 更大别名库、hybrid retrieval、pairwise matcher 与真实 Provider 标注集上的召回/置信度校准；
 - 真实模型扩大样本、费用账单校对、跨进程熔断、checkpoint 和 cassette replay；
 - 60/180 场景分层评测、真实模型成本与延迟基线；

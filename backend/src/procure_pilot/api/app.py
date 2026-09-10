@@ -7,10 +7,11 @@ from functools import lru_cache
 from typing import Annotated, Literal
 
 import uvicorn
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from procure_pilot.agents.multi_agent import (
     FixtureTwoAgentAdapter,
@@ -21,6 +22,7 @@ from procure_pilot.agents.runtime import (
     DeterministicAgentPlanner,
     topology_description,
 )
+from procure_pilot.bootstrap import build_policy_knowledge_service
 from procure_pilot.config import Settings, get_settings
 from procure_pilot.domain.knowledge import (
     KnowledgeDocumentVersion,
@@ -50,6 +52,7 @@ from procure_pilot.persistence import (
     SqlAlchemyRunRepository,
 )
 from procure_pilot.services.context import ContextPolicy
+from procure_pilot.services.document_ingestion import DocumentParseError
 from procure_pilot.services.engine import ProcurementEngine
 from procure_pilot.services.knowledge import KnowledgeIngestResult, PolicyKnowledgeService
 from procure_pilot.services.memory import MemoryService
@@ -221,7 +224,7 @@ def get_engine() -> ProcurementEngine:
         context_policy=ContextPolicy.from_yaml(settings.context_policy_path),
         memory_registry=memory_registry,
         knowledge_service=(
-            PolicyKnowledgeService(knowledge_repository)
+            build_policy_knowledge_service(knowledge_repository, settings)
             if knowledge_repository is not None
             else None
         ),
@@ -273,7 +276,7 @@ def create_app(
             )
         active_knowledge_repository = SqlAlchemyKnowledgeRepository(settings.database_url)
     active_knowledge_service = (
-        PolicyKnowledgeService(active_knowledge_repository)
+        build_policy_knowledge_service(active_knowledge_repository, settings)
         if active_knowledge_repository is not None
         else None
     )
@@ -346,6 +349,10 @@ def create_app(
     @app.exception_handler(ValueError)
     async def validation_handler(_, exc: ValueError):
         return _json_error(409, "INVALID_STATE", str(exc))
+
+    @app.exception_handler(DocumentParseError)
+    async def document_parse_handler(_, exc: DocumentParseError):
+        return _json_error(422, exc.code, str(exc))
 
     @app.exception_handler(PersistenceConflictError)
     async def persistence_conflict_handler(_, exc: PersistenceConflictError):
@@ -435,6 +442,36 @@ def create_app(
             policy_version=request.policy_version,
             effective_from=request.effective_from,
             raw_content=request.raw_content,
+        )
+
+    @app.post("/internal/knowledge/files", response_model=KnowledgeIngestResult)
+    async def ingest_knowledge_file(
+        context: Annotated[RequestContext, Depends(request_context)],
+        file: Annotated[UploadFile, File()],
+        document_key: Annotated[str, Form(min_length=1, max_length=128)],
+        title: Annotated[str, Form(min_length=2, max_length=512)],
+        category_id: Annotated[str, Form(min_length=1, max_length=128)],
+        source_uri: Annotated[str, Form(min_length=1, max_length=1024)],
+        policy_version: Annotated[str, Form(min_length=1, max_length=64)],
+        effective_from: Annotated[datetime, Form()],
+    ) -> KnowledgeIngestResult:
+        employee = active_engine.enterprise.identity(context.tenant_id, context.user_id)
+        knowledge_service().require_write_access(employee.roles)
+        file_data = await file.read(settings.knowledge_max_file_bytes + 1)
+        return await run_in_threadpool(
+            knowledge_service().ingest_file,
+            tenant_id=context.tenant_id,
+            actor_user_id=context.user_id,
+            roles=employee.roles,
+            document_key=document_key,
+            title=title,
+            category_id=category_id,
+            source_uri=source_uri,
+            policy_version=policy_version,
+            effective_from=effective_from,
+            file_name=file.filename or "",
+            media_type=file.content_type or "application/octet-stream",
+            file_data=file_data,
         )
 
     @app.post(

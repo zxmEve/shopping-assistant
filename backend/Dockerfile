@@ -1,6 +1,9 @@
 FROM python:3.13-slim
 
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-chi-sim \
+    && rm -rf /var/lib/apt/lists/*
 RUN pip install --no-cache-dir uv==0.6.10
 COPY pyproject.toml uv.lock ./
 COPY src ./src

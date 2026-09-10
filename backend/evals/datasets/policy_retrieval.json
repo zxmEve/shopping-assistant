@@ -1,22 +1,62 @@
 [
   {
+    "split": "development",
     "query": "研发笔记本最低内存是多少",
     "relevant_clause_refs": ["第一条"]
   },
   {
+    "split": "development",
     "query": "保修期要求",
     "relevant_clause_refs": ["第一条"]
   },
   {
+    "split": "development",
     "query": "供应商没有准入资格由谁复核",
     "relevant_clause_refs": ["第二条"]
   },
   {
+    "split": "development",
     "query": "超过一万元走什么审批",
     "relevant_clause_refs": ["第二条"]
   },
   {
+    "split": "development",
     "query": "量子卫星发射许可",
+    "relevant_clause_refs": []
+  },
+  {
+    "split": "holdout",
+    "query": "全新商品是否是强制要求",
+    "relevant_clause_refs": ["第一条"]
+  },
+  {
+    "split": "holdout",
+    "query": "研发电脑配置不得低于多少GB内存",
+    "relevant_clause_refs": ["第一条"]
+  },
+  {
+    "split": "holdout",
+    "query": "采购金额超过10000元需要谁审批",
+    "relevant_clause_refs": ["第二条"]
+  },
+  {
+    "split": "holdout",
+    "query": "未准入的供应商需要采购专员做什么",
+    "relevant_clause_refs": ["第二条"]
+  },
+  {
+    "split": "holdout",
+    "query": "员工年假如何计算",
+    "relevant_clause_refs": []
+  },
+  {
+    "split": "holdout",
+    "query": "办公场地消防验收",
+    "relevant_clause_refs": []
+  },
+  {
+    "split": "holdout",
+    "query": "员工体检报销上限",
     "relevant_clause_refs": []
   }
 ]

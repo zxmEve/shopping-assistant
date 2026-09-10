@@ -332,7 +332,7 @@ flowchart LR
 
 交付 Profile/Team/Episodic/Semantic memory、consent/edit/delete、memory audit，以及 pgvector + FTS + RRF。退出条件是记忆和制度检索不越租户、可删除、可追溯且过期制度不能参与最终判断。
 
-当前结果：长期记忆授权、Context、Registry、候选确认已完成；制度知识已完成版本化发布、GIN FTS、`vector(256)`、HNSW cosine、RRF/确定性重排、向量降级和条款级标注评测的最小纵向切片。真实语义 embedding、文件 ingestion 和大规模 holdout 仍待完成。
+当前结果：长期记忆授权、Context、Registry、候选确认已完成；制度知识已完成版本化文件上传、PDF/DOCX/TXT/Markdown 解析、OCR 接口、GIN FTS、`vector(256)`、HNSW cosine、RRF/确定性重排、OpenAI embedding provider、离线回填和 development/holdout 分层评测的最小纵向切片。真实企业语料、大规模标注和线上语义模型质量/费用基线仍待完成。
 
 ### Phase 5：工程可靠性增强
 

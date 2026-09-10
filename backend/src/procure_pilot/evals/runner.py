@@ -1121,12 +1121,17 @@ async def check_knowledge_005() -> tuple[bool, str]:
     with TemporaryDirectory() as directory:
         service = _knowledge_service(directory)
         _publish_eval_policy(service)
-        reciprocal_ranks: list[float] = []
-        relevant_hits = 0
-        relevant_queries = 0
-        no_answer_correct = 0
-        no_answer_queries = 0
-        hybrid_signal_queries = 0
+        counters = {
+            split: {
+                "reciprocal_ranks": [],
+                "relevant_hits": 0,
+                "relevant_queries": 0,
+                "no_answer_correct": 0,
+                "no_answer_queries": 0,
+                "hybrid_signal_queries": 0,
+            }
+            for split in ("overall", "development", "holdout")
+        }
         for item in labels:
             result = service.search(
                 tenant_id="demo_cn",
@@ -1135,39 +1140,56 @@ async def check_knowledge_005() -> tuple[bool, str]:
                 limit=3,
             )
             relevant = set(item["relevant_clause_refs"])
-            if not relevant:
-                no_answer_queries += 1
-                no_answer_correct += int(not result.citations)
-                continue
-            relevant_queries += 1
-            ranks = [
-                rank
-                for rank, citation in enumerate(result.citations, start=1)
-                if citation.clause_ref in relevant
-            ]
-            if ranks:
-                relevant_hits += 1
-                reciprocal_ranks.append(1.0 / ranks[0])
-            else:
-                reciprocal_ranks.append(0.0)
-            hybrid_signal_queries += int(
-                any(
-                    {"fts", "vector"}.issubset(citation.retrieval_channels)
-                    for citation in result.citations
+            for split in ("overall", item["split"]):
+                counter = counters[split]
+                if not relevant:
+                    counter["no_answer_queries"] += 1
+                    counter["no_answer_correct"] += int(not result.citations)
+                    continue
+                counter["relevant_queries"] += 1
+                ranks = [
+                    rank
+                    for rank, citation in enumerate(result.citations, start=1)
+                    if citation.clause_ref in relevant
+                ]
+                if ranks:
+                    counter["relevant_hits"] += 1
+                    counter["reciprocal_ranks"].append(1.0 / ranks[0])
+                else:
+                    counter["reciprocal_ranks"].append(0.0)
+                counter["hybrid_signal_queries"] += int(
+                    any(
+                        {"fts", "vector"}.issubset(citation.retrieval_channels)
+                        for citation in result.citations
+                    )
                 )
+        metrics: dict[str, float | int] = {"labeled_queries": len(labels)}
+        for split, counter in counters.items():
+            prefix = "" if split == "overall" else f"{split}_"
+            metrics[f"{prefix}hit_at_3"] = round(
+                counter["relevant_hits"] / max(1, counter["relevant_queries"]), 4
             )
-        metrics = {
-            "hit_at_3": round(relevant_hits / max(1, relevant_queries), 4),
-            "mrr": round(sum(reciprocal_ranks) / max(1, relevant_queries), 4),
-            "no_answer_accuracy": round(no_answer_correct / max(1, no_answer_queries), 4),
-            "hybrid_signal_rate": round(
-                hybrid_signal_queries / max(1, relevant_queries), 4
-            ),
-            "labeled_queries": len(labels),
-        }
+            metrics[f"{prefix}mrr"] = round(
+                sum(counter["reciprocal_ranks"]) / max(1, counter["relevant_queries"]), 4
+            )
+            metrics[f"{prefix}no_answer_accuracy"] = round(
+                counter["no_answer_correct"] / max(1, counter["no_answer_queries"]), 4
+            )
+            metrics[f"{prefix}hybrid_signal_rate"] = round(
+                counter["hybrid_signal_queries"] / max(1, counter["relevant_queries"]), 4
+            )
         passed = all(
             metrics[key] == 1.0
-            for key in ("hit_at_3", "mrr", "no_answer_accuracy", "hybrid_signal_rate")
+            for key in (
+                "hit_at_3",
+                "mrr",
+                "no_answer_accuracy",
+                "hybrid_signal_rate",
+                "holdout_hit_at_3",
+                "holdout_mrr",
+                "holdout_no_answer_accuracy",
+                "holdout_hybrid_signal_rate",
+            )
         )
         return passed, json.dumps(metrics, ensure_ascii=False, sort_keys=True)
 
@@ -1310,6 +1332,10 @@ async def run_evaluation() -> dict:
             "mrr": 0.0,
             "no_answer_accuracy": 0.0,
             "hybrid_signal_rate": 0.0,
+            "holdout_hit_at_3": 0.0,
+            "holdout_mrr": 0.0,
+            "holdout_no_answer_accuracy": 0.0,
+            "holdout_hybrid_signal_rate": 0.0,
             "labeled_queries": 0,
         }
     report = {
@@ -1430,6 +1456,14 @@ async def run_evaluation() -> dict:
             "knowledge_retrieval_mrr": retrieval_metrics["mrr"],
             "knowledge_no_answer_accuracy": retrieval_metrics["no_answer_accuracy"],
             "knowledge_hybrid_signal_rate": retrieval_metrics["hybrid_signal_rate"],
+            "knowledge_holdout_hit_at_3": retrieval_metrics["holdout_hit_at_3"],
+            "knowledge_holdout_mrr": retrieval_metrics["holdout_mrr"],
+            "knowledge_holdout_no_answer_accuracy": retrieval_metrics[
+                "holdout_no_answer_accuracy"
+            ],
+            "knowledge_holdout_hybrid_signal_rate": retrieval_metrics[
+                "holdout_hybrid_signal_rate"
+            ],
             "knowledge_labeled_query_count": retrieval_metrics["labeled_queries"],
         },
         "results": [asdict(result) for result in results],

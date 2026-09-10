@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -280,6 +281,15 @@ class KnowledgeDocumentVersionRecord(Base):
     effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_content: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_file_name: Mapped[str | None] = mapped_column(String(512))
+    source_media_type: Mapped[str | None] = mapped_column(String(128))
+    source_file_hash: Mapped[str | None] = mapped_column(String(64))
+    source_file_size: Mapped[int | None] = mapped_column(Integer)
+    parser_version: Mapped[str | None] = mapped_column(String(64))
+    extraction_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, nullable=False, default=dict
+    )
+    source_blob: Mapped[bytes | None] = mapped_column(LargeBinary)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[str] = mapped_column(String(128), nullable=False)
