@@ -7,7 +7,7 @@
 | 项目 | 借鉴内容 | 本项目的取舍 |
 |---|---|---|
 | [openai/openai-agents-python](https://github.com/openai/openai-agents-python) | Agents、agents-as-tools、handoff、guardrails、sessions、HITL 与 tracing 等 Agent 原语 | 作为默认 Agent runtime；领域事实、副作用和流程约束仍由项目 Harness 控制 |
-| [langchain-ai/langgraph](https://github.com/langchain-ai/langgraph) | 图状态、checkpoint、durable execution、interrupt、短期与长期状态分离 | 作为可替换 runtime 的对照方案，不与 Agents SDK 同时进入主链路，避免双重状态管理 |
+| [langchain-ai/langgraph](https://github.com/langchain-ai/langgraph) | 图状态、checkpoint、durable execution、interrupt、短期与长期状态分离 | 已作为默认工作流 Runtime；Agents SDK 只负责两个 Agent 内部模型/工具循环，两者不共享状态所有权 |
 | [NVIDIA-AI-Blueprints/retail-shopping-assistant](https://github.com/NVIDIA-AI-Blueprints/retail-shopping-assistant) | 购物领域多 Agent、检索、记忆、guardrail、流式 UI 和图像搜索 | 保留目录检索与商品比较思想，增加企业预算、供应商、权限和审批，不采用重 GPU 部署栈 |
 | [AmineElAtrache/Smart-Shopper](https://github.com/AmineElAtrache/Smart-Shopper) | 多站点并行检索、实体抽取、去重排序、价格监控、治理和部分失败 | 借鉴事件驱动与 provider 隔离；MVP 采用模块化单体 + Worker，避免过早微服务化 |
 | [VIVPM/ecommerce-agent](https://github.com/VIVPM/ecommerce-agent) | FastAPI/React、SSE、目录查询、缓存、只读 SQL、安全边界和大规模场景评测 | 借鉴 Python 流式服务与评测思路，并补充跨来源同款归一、预算与审批闭环 |

@@ -5,15 +5,22 @@ import hashlib
 import json
 import re
 from decimal import Decimal
+from typing import Any, Literal
 
+from pydantic import BaseModel, Field
+
+from procure_pilot.agents.contracts import AgentKind
 from procure_pilot.agents.runtime import AgentPlanner, DeterministicAgentPlanner
-from procure_pilot.agents.tools import AgentRuntimeContext
+from procure_pilot.agents.tools import AgentCandidateProposal, AgentRuntimeContext
+from procure_pilot.domain.execution import AgentExecution, ExecutionStatus
 from procure_pilot.domain.knowledge import PolicyKnowledgeReviewRequired
 from procure_pilot.domain.models import (
     BudgetResource,
     Candidate,
+    CatalogSearchResult,
     ClarificationDecision,
     CostBreakdown,
+    ExecutionUsage,
     MatchDecisionType,
     Message,
     Money,
@@ -28,15 +35,34 @@ from procure_pilot.domain.models import (
     RunResponse,
     RunState,
     ToolBudgetPool,
+    TraceEvent,
 )
 from procure_pilot.fixtures.catalog import PROVIDERS, FixtureCatalogAdapter, ProviderError
 from procure_pilot.fixtures.enterprise import FixtureEnterpriseGateway
+from procure_pilot.gateway.model_gateway import ModelGateway
+from procure_pilot.gateway.tool_gateway import (
+    GatewayExecutionContext,
+    ToolGateway,
+    build_default_tool_registry,
+)
 from procure_pilot.harness.runtime import (
     AgentHarness,
     CircuitOpenError,
     HarnessBudgetExceeded,
+    RunNotFoundError,
     RunRepositoryPort,
     ToolTimeoutError,
+)
+from procure_pilot.persistence.budget_repository import InMemoryBudgetRepository
+from procure_pilot.persistence.execution_repository import (
+    ExecutionRepositoryPort,
+    InMemoryExecutionRepository,
+)
+from procure_pilot.services.budget import (
+    BudgetLimitProvider,
+    BudgetService,
+    InMemoryBudgetService,
+    StaticBudgetLimitProvider,
 )
 from procure_pilot.services.context import (
     DEFAULT_CONTEXT_POLICY,
@@ -67,6 +93,30 @@ QUESTION_INFORMATION_VALUE = {
 MAX_CLARIFICATION_ROUNDS = 3
 
 
+class AgentStageResult(BaseModel):
+    execution_id: str
+    agent_kind: Literal["REQUIREMENT", "SOURCING"]
+    proposed_candidates: list[AgentCandidateProposal] = Field(default_factory=list)
+    decision_rationale: str = ""
+    catalog_results: dict[str, CatalogSearchResult] = Field(default_factory=dict)
+    execution_usage: ExecutionUsage | None = None
+    trace_events: list[TraceEvent] = Field(default_factory=list)
+
+
+class ConfirmationStageResult(BaseModel):
+    outcome: Literal[
+        "READY_FOR_QUOTE",
+        "READY_FOR_POLICY",
+        "READY_FOR_WRITE",
+        "WAITING_CONFIRMATION",
+        "DRAFT_CREATED",
+        "STOPPED",
+    ]
+    assistant_message: str = ""
+    refreshed_offer: Offer | None = None
+    candidate: Candidate | None = None
+
+
 class ProcurementEngine:
     def __init__(
         self,
@@ -80,6 +130,13 @@ class ProcurementEngine:
         context_policy: ContextPolicy = DEFAULT_CONTEXT_POLICY,
         memory_registry: MemoryRegistry | None = None,
         knowledge_service: PolicyKnowledgeService | None = None,
+        execution_repository: ExecutionRepositoryPort | None = None,
+        budget_service: BudgetService | None = None,
+        budget_limit_provider: BudgetLimitProvider | None = None,
+        tool_gateway: ToolGateway | None = None,
+        provider_costs_micro_usd: dict[str, int] | None = None,
+        model_max_reservation_micro_usd: int = 100_000,
+        budget_reservation_ttl_seconds: int = 300,
     ) -> None:
         self.catalog = catalog
         self.enterprise = enterprise
@@ -90,12 +147,585 @@ class ProcurementEngine:
         self.context_policy = context_policy
         self.memory_registry = memory_registry
         self.knowledge_service = knowledge_service
+        self.execution_repository = execution_repository or InMemoryExecutionRepository()
+        self.budget_limit_provider = budget_limit_provider or StaticBudgetLimitProvider(
+            platform_daily=10_000_000_000,
+            platform_monthly=100_000_000_000,
+            tenant_monthly=50_000_000_000,
+            user_daily=5_000_000_000,
+        )
+        self.budget_service = budget_service or InMemoryBudgetService(
+            InMemoryBudgetRepository(), limit_provider=self.budget_limit_provider
+        )
+        self.tool_gateway = tool_gateway or ToolGateway(
+            registry=build_default_tool_registry(
+                catalog=catalog,
+                enterprise=enterprise,
+                provider_costs_micro_usd=provider_costs_micro_usd,
+            ),
+            harness=harness,
+            execution_repository=self.execution_repository,
+            budget_service=self.budget_service,
+            budget_limit_provider=self.budget_limit_provider,
+            reservation_ttl_seconds=budget_reservation_ttl_seconds,
+        )
+        self.model_gateway = ModelGateway(
+            budget_service=self.budget_service,
+            budget_limit_provider=self.budget_limit_provider,
+            max_reservation_micro_usd=model_max_reservation_micro_usd,
+            reservation_ttl_seconds=budget_reservation_ttl_seconds,
+        )
         self.context_assembler = ContextAssembler(
             memory_repository,
             policy=context_policy,
             memory_registry=memory_registry,
         )
         self._run_locks: dict[str, asyncio.Lock] = {}
+
+    def initialize_workflow_run(
+        self,
+        *,
+        run_id: str,
+        tenant_id: str,
+        user_id: str,
+        message: str,
+        scenario: str | None = None,
+    ) -> ProcurementRun:
+        """Persist user input before an expensive Agent node starts."""
+        self.enterprise.identity(tenant_id, user_id)
+        try:
+            existing = self.repository.get(run_id)
+        except RunNotFoundError:
+            existing = None
+        if existing is not None:
+            self._assert_owner(existing, tenant_id, user_id)
+            first_user_message = next(
+                (item.content for item in existing.messages if item.role == "user"), None
+            )
+            if first_user_message != message:
+                raise ValueError("Existing Run input does not match the workflow checkpoint")
+            return existing
+        run = ProcurementRun(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            scenario=scenario,
+        )
+        self.harness.initialize_run(run)
+        self.harness.trace(run, actor="Application Runtime", kind="STATE", name="run.started")
+        run.messages.append(Message(role="user", content=message))
+        self._merge_requirement(run.requirement, message)
+        if "按公司标准" in message or "按团队标准" in message:
+            self._apply_authorized_defaults(run.requirement)
+        self.repository.save(run)
+        return run
+
+    def accept_workflow_message(
+        self,
+        *,
+        run_id: str,
+        tenant_id: str,
+        user_id: str,
+        message: str,
+        scenario: str | None = None,
+    ) -> ProcurementRun:
+        """Persist one clarification before an Agent node; duplicate state is rejected."""
+        run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+        self._assert_owner(run, tenant_id, user_id)
+        if (
+            run.state == RunState.COLLECTING
+            and run.messages
+            and run.messages[-1].role == "user"
+            and run.messages[-1].content == message
+        ):
+            return run
+        if run.state not in {RunState.WAITING_USER, RunState.COLLECTING}:
+            raise ValueError(f"Run cannot accept clarification in state {run.state}")
+        if run.state == RunState.WAITING_USER:
+            self.harness.transition(run, RunState.COLLECTING, reason="user supplied clarification")
+        run.messages.append(Message(role="user", content=message))
+        run.requirement.version += 1
+        if scenario is not None:
+            run.scenario = scenario
+        self._merge_requirement(run.requirement, message)
+        if "按公司标准" in message or "按团队标准" in message:
+            self._apply_authorized_defaults(run.requirement)
+        self.repository.save(run)
+        return run
+
+    def required_agent_kind(self, run: ProcurementRun) -> AgentKind:
+        clarification = self._clarification(run.requirement, run.clarification_rounds)
+        return AgentKind.SOURCING if clarification.ready_for_sourcing else AgentKind.REQUIREMENT
+
+    async def execute_agent_node(
+        self,
+        *,
+        run_id: str,
+        tenant_id: str,
+        user_id: str,
+        expected_kind: AgentKind,
+        node_name: str,
+    ) -> AgentStageResult:
+        run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+        self._assert_owner(run, tenant_id, user_id)
+        if run.state != RunState.COLLECTING:
+            raise ValueError(f"Agent node cannot execute in state {run.state}")
+        actual_kind = self.required_agent_kind(run)
+        if actual_kind != expected_kind:
+            raise ValueError(f"Agent node mismatch: expected {expected_kind}, got {actual_kind}")
+        payload = {
+            "run_id": run.run_id,
+            "state_version": run.state_version,
+            "requirement": run.requirement.model_dump(mode="json"),
+            "messages": [item.model_dump(mode="json") for item in run.messages],
+            "agent": expected_kind.value,
+        }
+        input_fingerprint = self._fingerprint(payload)
+        idempotency_key = f"agent:{run.run_id}:{expected_kind.value}:{input_fingerprint}"
+        existing = self.execution_repository.get_agent(idempotency_key)
+        if existing is not None and existing.status == ExecutionStatus.SUCCEEDED:
+            if existing.result_json is None:
+                raise ValueError("Completed Agent execution is missing its result")
+            result = AgentStageResult.model_validate(existing.result_json)
+            if result.execution_usage is not None:
+                run.execution_usage = result.execution_usage.model_copy(deep=True)
+            known_event_ids = {event.event_id for event in run.trace}
+            run.trace.extend(
+                event.model_copy(deep=True)
+                for event in result.trace_events
+                if event.event_id not in known_event_ids
+            )
+            self.harness.trace(
+                run,
+                actor="Application Runtime",
+                kind="AGENT",
+                name="agent.execution_reused",
+                detail={"execution_id": existing.execution_id, "node": node_name},
+                status="RECOVERED",
+            )
+            self.repository.save(run)
+            return result
+        claimed = self.execution_repository.claim_agent(
+            AgentExecution(
+                tenant_id=run.tenant_id,
+                user_id=run.user_id,
+                run_id=run.run_id,
+                node_name=node_name,
+                agent_kind=expected_kind.value,
+                task_id=f"{expected_kind.value.lower()}_{run.state_version}",
+                state_version=run.state_version,
+                input_fingerprint=input_fingerprint,
+                idempotency_key=idempotency_key,
+            )
+        )
+        try:
+            trace_start = len(run.trace)
+            context = await self._plan(run)
+            result = AgentStageResult(
+                execution_id=claimed.execution_id,
+                agent_kind=expected_kind.value,
+                proposed_candidates=context.proposed_candidates,
+                decision_rationale=context.decision_rationale,
+                catalog_results=context.catalog_results,
+                execution_usage=run.execution_usage.model_copy(deep=True),
+                trace_events=[event.model_copy(deep=True) for event in run.trace[trace_start:]],
+            )
+            self.execution_repository.complete_agent(
+                claimed.execution_id,
+                result.model_dump(mode="json"),
+            )
+            self.repository.save(run)
+            return result
+        except Exception as exc:
+            self.execution_repository.fail_agent(
+                claimed.execution_id,
+                f"{type(exc).__name__}: {exc}",
+            )
+            raise
+
+    async def complete_workflow_turn(
+        self,
+        *,
+        run_id: str,
+        tenant_id: str,
+        user_id: str,
+        agent_stage: AgentStageResult,
+    ) -> RunResponse:
+        run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+        if run.state != RunState.COLLECTING:
+            assistant_message = next(
+                (item.content for item in reversed(run.messages) if item.role == "assistant"),
+                run.error or "任务已恢复到持久化业务状态。",
+            )
+            return RunResponse(run=run, assistant_message=assistant_message)
+        context = AgentRuntimeContext(
+            run=run,
+            catalog=self.catalog,
+            enterprise=self.enterprise,
+            harness=self.harness,
+            roles=self.enterprise.identity(run.tenant_id, run.user_id).roles,
+            tool_gateway=self.tool_gateway,
+            model_gateway=self.model_gateway,
+            context_assembler=self.context_assembler,
+            proposed_candidates=agent_stage.proposed_candidates,
+            decision_rationale=agent_stage.decision_rationale,
+        )
+        for result in agent_stage.catalog_results.values():
+            context.remember_catalog_result(result)
+        try:
+            response = await self._advance(
+                run,
+                scenario=run.scenario,
+                agent_context=context,
+            )
+        except HarnessBudgetExceeded as exc:
+            response = self._budget_stopped(run, exc)
+        self.repository.save(run)
+        return response
+
+    def prepare_confirmation_node(
+        self,
+        *,
+        run_id: str,
+        tenant_id: str,
+        user_id: str,
+        action_token: str,
+    ) -> ConfirmationStageResult:
+        run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+        self._assert_owner(run, tenant_id, user_id)
+        if run.draft:
+            return ConfirmationStageResult(
+                outcome="DRAFT_CREATED",
+                assistant_message=f"采购草稿 {run.draft.draft_id} 已存在，未重复创建。",
+            )
+        if run.state == RunState.REVALIDATING:
+            return ConfirmationStageResult(outcome="READY_FOR_QUOTE")
+        if run.state != RunState.WAITING_CONFIRMATION or not run.recommendation:
+            raise ValueError("Run is not waiting for confirmation")
+        try:
+            self.harness.verify_action_token(action_token, run)
+            self.harness.assert_budget_available(run, BudgetResource.STATE_TRANSITIONS, 3)
+            self.harness.reserve_commit_tool_calls(run, 3)
+            self.harness.transition(
+                run,
+                RunState.REVALIDATING,
+                reason="user confirmed the quoted action",
+            )
+        except HarnessBudgetExceeded as exc:
+            self._restore_waiting_confirmation(
+                run,
+                reason="confirmation budget was unavailable or exhausted safely",
+            )
+            response = self._budget_stopped(run, exc)
+            self.repository.save(run)
+            return ConfirmationStageResult(
+                outcome="STOPPED", assistant_message=response.assistant_message
+            )
+        self.repository.save(run)
+        return ConfirmationStageResult(outcome="READY_FOR_QUOTE")
+
+    async def revalidate_quote_node(
+        self,
+        *,
+        run_id: str,
+        tenant_id: str,
+        user_id: str,
+    ) -> ConfirmationStageResult:
+        run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+        if run.state != RunState.REVALIDATING or not run.recommendation:
+            raise ValueError("Run is not ready for quote revalidation")
+        employee = self.enterprise.identity(run.tenant_id, run.user_id)
+        candidate = run.recommendation.best_overall
+        arguments = {
+            "provider": candidate.offer.provider,
+            "offer_id": candidate.offer.offer_id,
+            "quote_fingerprint": run.quote_snapshot.fingerprint if run.quote_snapshot else None,
+        }
+        fingerprint = self._fingerprint(arguments)
+        key = f"tool:{run.run_id}:revalidate_quote:{fingerprint}"
+        try:
+            refreshed_offer = await self.tool_gateway.invoke(
+                tool_name="revalidate_quote",
+                arguments={
+                    "provider": candidate.offer.provider,
+                    "offer_id": candidate.offer.offer_id,
+                },
+                context=GatewayExecutionContext(
+                    run=run,
+                    roles=employee.roles,
+                    node_name="revalidate_quote",
+                    budget_pool=ToolBudgetPool.COMMIT,
+                ),
+                idempotency_key=key,
+            )
+        except (HarnessBudgetExceeded, ProviderError, ToolTimeoutError, CircuitOpenError) as exc:
+            self._restore_waiting_confirmation(
+                run,
+                reason="quote revalidation tool failed safely",
+            )
+            message = "报价复核暂时失败，未创建草稿。请稍后重新确认。"
+            if isinstance(exc, HarnessBudgetExceeded):
+                message = self._budget_stopped(run, exc).assistant_message
+            else:
+                self.harness.trace(
+                    run,
+                    actor="Agent Harness",
+                    kind="HARNESS",
+                    name="revalidation.degraded",
+                    detail={"error_code": getattr(exc, "code", type(exc).__name__)},
+                    status="DEGRADED",
+                )
+                run.messages.append(Message(role="assistant", content=message))
+            self.repository.save(run)
+            return ConfirmationStageResult(
+                outcome="WAITING_CONFIRMATION", assistant_message=message
+            )
+        refreshed_offer = Offer.model_validate(refreshed_offer)
+        self.repository.save(run)
+        return ConfirmationStageResult(
+            outcome="READY_FOR_POLICY", refreshed_offer=refreshed_offer
+        )
+
+    async def revalidate_policy_node(
+        self,
+        *,
+        run_id: str,
+        tenant_id: str,
+        user_id: str,
+        refreshed_offer: Offer,
+    ) -> ConfirmationStageResult:
+        run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+        if run.state != RunState.REVALIDATING or not run.recommendation:
+            raise ValueError("Run is not ready for policy revalidation")
+        employee = self.enterprise.identity(run.tenant_id, run.user_id)
+        refreshed_cost = self._calculate_cost(refreshed_offer, run.requirement)
+        arguments = {
+            "offer": refreshed_offer.model_dump(mode="json"),
+            "landed_cost": str(refreshed_cost.unconditional_total.amount),
+            "policy_version": str(self.enterprise.policy["version"]),
+        }
+        fingerprint = self._fingerprint(arguments)
+        key = f"tool:{run.run_id}:revalidate_policy:{fingerprint}"
+        try:
+            policy_payload = await self.tool_gateway.invoke(
+                tool_name="evaluate_policy",
+                arguments={
+                    "provider": refreshed_offer.provider,
+                    "offer_id": refreshed_offer.offer_id,
+                },
+                context=GatewayExecutionContext(
+                    run=run,
+                    roles=employee.roles,
+                    node_name="revalidate_policy",
+                    budget_pool=ToolBudgetPool.COMMIT,
+                    runtime_data={
+                        "offers": {
+                            (refreshed_offer.provider, refreshed_offer.offer_id): refreshed_offer
+                        }
+                    },
+                ),
+                idempotency_key=key,
+            )
+            policy_payload = {
+                **policy_payload,
+                "policy_knowledge_refs": self._policy_knowledge_refs(run),
+            }
+        except (HarnessBudgetExceeded, PolicyKnowledgeReviewRequired) as exc:
+            self._restore_waiting_confirmation(
+                run,
+                reason="policy revalidation could not complete safely",
+            )
+            message = (
+                self._budget_stopped(run, exc).assistant_message
+                if isinstance(exc, HarnessBudgetExceeded)
+                else "制度条款缺失或版本不一致，未创建草稿，需要人工复核制度知识。"
+            )
+            if not isinstance(exc, HarnessBudgetExceeded):
+                run.messages.append(Message(role="assistant", content=message))
+            self.repository.save(run)
+            return ConfirmationStageResult(
+                outcome="WAITING_CONFIRMATION", assistant_message=message
+            )
+        decision = PolicyDecision(policy_payload["decision"])
+        if decision == PolicyDecision.DENY:
+            self._restore_waiting_confirmation(
+                run,
+                reason="policy revalidation denied the write safely",
+            )
+            self.repository.save(run)
+            raise PermissionError("Policy revalidation denied draft creation")
+        if run.requirement.unit_budget and (
+            refreshed_offer.unit_price.amount > run.requirement.unit_budget.amount
+        ):
+            self._restore_waiting_confirmation(
+                run,
+                reason="revalidated quote exceeded the confirmed budget safely",
+            )
+            self.repository.save(run)
+            raise PermissionError("Revalidated offer exceeds the confirmed unit budget")
+        if run.quote_snapshot is None:
+            self._restore_waiting_confirmation(
+                run,
+                reason="missing quote snapshot prevented the write safely",
+            )
+            self.repository.save(run)
+            raise ValueError("Run is missing the quote snapshot required for confirmation")
+        refreshed_snapshot = self._quote_snapshot(refreshed_offer)
+        if refreshed_snapshot.fingerprint != run.quote_snapshot.fingerprint:
+            changes = self._quote_changes(run.quote_snapshot, refreshed_snapshot)
+            run.revalidation_changes = changes
+            candidate = self._confirmed_candidate(
+                run.recommendation.best_overall,
+                refreshed_offer,
+                refreshed_cost,
+                policy_payload,
+            )
+            run.recommendation.best_overall = candidate
+            run.quote_snapshot = refreshed_snapshot
+            run.action_token = self.harness.issue_action_token(run)
+            self.harness.transition(
+                run,
+                RunState.WAITING_CONFIRMATION,
+                reason="quote facts changed and require a new confirmation",
+            )
+            self.harness.release_commit_tool_calls(run)
+            detail = "；".join(
+                f"{change.field}: {change.previous} → {change.current}" for change in changes
+            )
+            message = f"报价关键事实已变化，未创建草稿。请核对后重新确认：{detail}"
+            run.messages.append(Message(role="assistant", content=message))
+            self.repository.save(run)
+            return ConfirmationStageResult(
+                outcome="WAITING_CONFIRMATION", assistant_message=message
+            )
+        candidate = self._confirmed_candidate(
+            run.recommendation.best_overall,
+            refreshed_offer,
+            refreshed_cost,
+            policy_payload,
+        )
+        run.revalidation_changes = []
+        self.repository.save(run)
+        return ConfirmationStageResult(outcome="READY_FOR_WRITE", candidate=candidate)
+
+    async def create_draft_node(
+        self,
+        *,
+        run_id: str,
+        tenant_id: str,
+        user_id: str,
+        candidate: Candidate,
+    ) -> ConfirmationStageResult:
+        run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+        if run.draft:
+            for tool_call in self.execution_repository.list_tools(
+                run.run_id, tenant_id=run.tenant_id
+            ):
+                if (
+                    tool_call.tool_name == "create_requisition_draft"
+                    and tool_call.status != ExecutionStatus.SUCCEEDED
+                    and tool_call.arguments_json.get("business_idempotency_key")
+                    == run.draft.idempotency_key
+                ):
+                    self.execution_repository.complete_tool(
+                        tool_call.tool_call_id,
+                        {"draft": run.draft.model_dump(mode="json")},
+                    )
+            return ConfirmationStageResult(
+                outcome="DRAFT_CREATED",
+                assistant_message=f"采购草稿 {run.draft.draft_id} 已存在，未重复创建。",
+                candidate=run.draft.candidate,
+            )
+        if run.state != RunState.REVALIDATING:
+            raise ValueError("Run is not ready for draft creation")
+        employee = self.enterprise.identity(run.tenant_id, run.user_id)
+        idempotency_key = hashlib.sha256(
+            f"{run.run_id}:{candidate.offer.offer_id}:{run.requirement.version}".encode()
+        ).hexdigest()[:24]
+        arguments = {
+            "business_idempotency_key": idempotency_key,
+            "offer_id": candidate.offer.offer_id,
+            "requirement_version": run.requirement.version,
+        }
+        journal_key = f"tool:{run.run_id}:create_draft:{idempotency_key}"
+        self.harness.transition(run, RunState.DRAFT_CREATING, reason="revalidation passed")
+        try:
+            draft = await self.tool_gateway.invoke(
+                tool_name="create_requisition_draft",
+                arguments=arguments,
+                context=GatewayExecutionContext(
+                    run=run,
+                    roles=employee.roles,
+                    node_name="create_draft",
+                    budget_pool=ToolBudgetPool.COMMIT,
+                    confirmed=True,
+                    runtime_data={"candidate": candidate},
+                ),
+                idempotency_key=journal_key,
+            )
+            run.draft = ProcurementDraft.model_validate(draft)
+            self.harness.recovery_transition(
+                run,
+                RunState.DRAFT_CREATED,
+                reason="requisition draft created",
+            )
+        except Exception:
+            if run.state == RunState.DRAFT_CREATING:
+                self.harness.recovery_transition(
+                    run,
+                    RunState.WAITING_CONFIRMATION,
+                    reason="draft Gateway failed before a durable business write",
+                )
+                self.harness.release_commit_tool_calls(run)
+                self.repository.save(run)
+            raise
+        self.harness.trace(
+            run,
+            actor="Application Runtime",
+            kind="TOOL",
+            name="create_requisition_draft",
+            detail={"risk": "BUSINESS_WRITE", "draft_id": run.draft.draft_id},
+        )
+        run.error = None
+        self.repository.save(run)
+        message = (
+            f"已创建采购草稿 {run.draft.draft_id}。状态为 DRAFT_NOT_SUBMITTED，"
+            "尚未提交审批或下单。"
+        )
+        return ConfirmationStageResult(
+            outcome="DRAFT_CREATED", assistant_message=message, candidate=run.draft.candidate
+        )
+
+    @staticmethod
+    def _confirmed_candidate(
+        original: Candidate,
+        offer: Offer,
+        cost: CostBreakdown,
+        policy_payload: dict[str, Any],
+    ) -> Candidate:
+        candidate = original.model_copy(deep=True)
+        candidate.offer = offer
+        candidate.cost = cost
+        candidate.policy_decision = PolicyDecision(policy_payload["decision"])
+        candidate.approval_route = policy_payload["approval_route"]
+        candidate.policy_reasons = policy_payload["reasons"]
+        candidate.evidence_refs = list(
+            dict.fromkeys(
+                [
+                    *offer.match_decision.evidence_refs,
+                    offer.evidence.evidence_id,
+                    *policy_payload["evidence_refs"],
+                    *policy_payload["policy_knowledge_refs"],
+                ]
+            )
+        )
+        return candidate
+
+    @staticmethod
+    def _fingerprint(payload: dict[str, Any]) -> str:
+        return hashlib.sha256(
+            json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        ).hexdigest()
 
     def configure_memory_context(
         self,
@@ -119,13 +749,19 @@ class ProcurementEngine:
     async def start(
         self,
         *,
+        run_id: str | None = None,
         tenant_id: str,
         user_id: str,
         message: str,
         scenario: str | None = None,
     ) -> RunResponse:
         self.enterprise.identity(tenant_id, user_id)
-        run = ProcurementRun(tenant_id=tenant_id, user_id=user_id, scenario=scenario)
+        run = ProcurementRun(
+            **({"run_id": run_id} if run_id is not None else {}),
+            tenant_id=tenant_id,
+            user_id=user_id,
+            scenario=scenario,
+        )
         self.harness.initialize_run(run)
         try:
             self.harness.trace(run, actor="Application Runtime", kind="STATE", name="run.started")
@@ -206,264 +842,43 @@ class ProcurementEngine:
         user_id: str,
         action_token: str,
     ) -> RunResponse:
+        prepared = self.prepare_confirmation_node(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action_token=action_token,
+        )
+        if prepared.outcome == "STOPPED":
+            run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+            return RunResponse(run=run, assistant_message=prepared.assistant_message)
+        if prepared.outcome == "DRAFT_CREATED":
+            run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+            return RunResponse(run=run, assistant_message=prepared.assistant_message)
+        quote = await self.revalidate_quote_node(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+        )
+        if quote.outcome != "READY_FOR_POLICY" or quote.refreshed_offer is None:
+            run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+            return RunResponse(run=run, assistant_message=quote.assistant_message)
+        policy = await self.revalidate_policy_node(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            refreshed_offer=quote.refreshed_offer,
+        )
+        if policy.outcome != "READY_FOR_WRITE" or policy.candidate is None:
+            run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
+            return RunResponse(run=run, assistant_message=policy.assistant_message)
+        created = await self.create_draft_node(
+            run_id=run_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            candidate=policy.candidate,
+        )
         run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
-        self._assert_owner(run, tenant_id, user_id)
-        if run.draft:
-            return RunResponse(
-                run=run, assistant_message=f"采购草稿 {run.draft.draft_id} 已存在，未重复创建。"
-            )
-        if run.state != RunState.WAITING_CONFIRMATION or not run.recommendation:
-            raise ValueError("Run is not waiting for confirmation")
-        try:
-            self.harness.verify_action_token(action_token, run)
-            self.harness.assert_budget_available(
-                run,
-                BudgetResource.STATE_TRANSITIONS,
-                3,
-            )
-            self.harness.reserve_commit_tool_calls(run, 3)
-            self.harness.transition(
-                run,
-                RunState.REVALIDATING,
-                reason="user confirmed the quoted action",
-            )
-            employee = self.enterprise.identity(run.tenant_id, run.user_id)
-            candidate = run.recommendation.best_overall
-            refreshed_offer = await self.harness.execute_tool(
-                run,
-                tool_name="revalidate_quote",
-                roles=employee.roles,
-                provider=candidate.offer.provider,
-                budget_pool=ToolBudgetPool.COMMIT,
-                operation=lambda: self.catalog.get_offer(
-                    candidate.offer.provider,
-                    candidate.offer.offer_id,
-                    scenario=run.scenario,
-                ),
-            )
-        except HarnessBudgetExceeded as exc:
-            self._restore_waiting_confirmation(
-                run,
-                reason="confirmation budget was unavailable or exhausted safely",
-            )
-            response = self._budget_stopped(run, exc)
-            self.repository.save(run)
-            return response
-        except (ProviderError, ToolTimeoutError, CircuitOpenError) as exc:
-            self._restore_waiting_confirmation(
-                run,
-                reason="quote revalidation tool failed safely",
-            )
-            self.harness.trace(
-                run,
-                actor="Agent Harness",
-                kind="HARNESS",
-                name="revalidation.degraded",
-                detail={"error_code": getattr(exc, "code", type(exc).__name__)},
-                status="DEGRADED",
-            )
-            message = "报价复核暂时失败，未创建草稿。请稍后重新确认。"
-            run.messages.append(Message(role="assistant", content=message))
-            self.repository.save(run)
-            return RunResponse(run=run, assistant_message=message)
-        refreshed_snapshot = self._quote_snapshot(refreshed_offer)
-        refreshed_cost = self._calculate_cost(refreshed_offer, run.requirement)
-        try:
-            self.harness.begin_tool_call(
-                run,
-                tool_name="evaluate_policy",
-                roles=employee.roles,
-                confirmed=False,
-                budget_pool=ToolBudgetPool.COMMIT,
-            )
-        except HarnessBudgetExceeded as exc:
-            self._restore_waiting_confirmation(
-                run,
-                reason="policy revalidation budget was exhausted safely",
-            )
-            response = self._budget_stopped(run, exc)
-            self.repository.save(run)
-            return response
-        refreshed = self.enterprise.evaluate(
-            employee=employee,
-            vendor_id=refreshed_offer.vendor_id,
-            landed_cost=refreshed_cost.unconditional_total.amount,
-            ram_gb=refreshed_offer.variant.ram_gb,
-            warranty_months=refreshed_offer.variant.warranty_months,
-            condition=refreshed_offer.variant.condition,
-        )
-        try:
-            policy_knowledge_refs = self._policy_knowledge_refs(run)
-        except PolicyKnowledgeReviewRequired as exc:
-            self._restore_waiting_confirmation(
-                run,
-                reason="policy knowledge could not be safely revalidated",
-            )
-            self.harness.trace(
-                run,
-                actor="Policy Knowledge Service",
-                kind="KNOWLEDGE",
-                name="knowledge.policy_review_required",
-                detail={"code": exc.code},
-                status="REQUIRES_REVIEW",
-            )
-            message = "制度条款缺失或版本不一致，未创建草稿，需要人工复核制度知识。"
-            run.messages.append(Message(role="assistant", content=message))
-            self.repository.save(run)
-            return RunResponse(run=run, assistant_message=message)
-        if refreshed.decision == PolicyDecision.DENY:
-            self._restore_waiting_confirmation(
-                run,
-                reason="policy revalidation denied the write safely",
-            )
-            self.repository.save(run)
-            raise PermissionError("Policy revalidation denied draft creation")
-        if run.requirement.unit_budget and (
-            refreshed_offer.unit_price.amount > run.requirement.unit_budget.amount
-        ):
-            self._restore_waiting_confirmation(
-                run,
-                reason="revalidated quote exceeded the confirmed budget safely",
-            )
-            self.repository.save(run)
-            raise PermissionError("Revalidated offer exceeds the confirmed unit budget")
-
-        if run.quote_snapshot is None:
-            self._restore_waiting_confirmation(
-                run,
-                reason="missing quote snapshot prevented the write safely",
-            )
-            self.repository.save(run)
-            raise ValueError("Run is missing the quote snapshot required for confirmation")
-        if refreshed_snapshot.fingerprint != run.quote_snapshot.fingerprint:
-            changes = self._quote_changes(run.quote_snapshot, refreshed_snapshot)
-            run.revalidation_changes = changes
-            refreshed_candidate = candidate.model_copy(deep=True)
-            refreshed_candidate.offer = refreshed_offer
-            refreshed_candidate.cost = refreshed_cost
-            refreshed_candidate.policy_decision = refreshed.decision
-            refreshed_candidate.approval_route = refreshed.approval_route
-            refreshed_candidate.policy_reasons = refreshed.reasons
-            refreshed_candidate.evidence_refs = list(
-                dict.fromkeys(
-                    [
-                        *refreshed_offer.match_decision.evidence_refs,
-                        refreshed_offer.evidence.evidence_id,
-                        *refreshed.evidence_refs,
-                        *policy_knowledge_refs,
-                    ]
-                )
-            )
-            refreshed_candidate.score = self._score(
-                refreshed_offer, refreshed_cost, refreshed.decision
-            )
-            run.recommendation.best_overall = refreshed_candidate
-            run.quote_snapshot = refreshed_snapshot
-            run.action_token = self.harness.issue_action_token(run)
-            try:
-                self.harness.transition(
-                    run,
-                    RunState.WAITING_CONFIRMATION,
-                    reason="quote facts changed and require a new confirmation",
-                )
-                self.harness.release_commit_tool_calls(run)
-            except HarnessBudgetExceeded as exc:
-                self._restore_waiting_confirmation(
-                    run,
-                    reason="quote-change recovery completed safely",
-                )
-                response = self._budget_stopped(run, exc)
-                self.repository.save(run)
-                return response
-            self.harness.trace(
-                run,
-                actor="Application Runtime",
-                kind="TOOL",
-                name="revalidate_quote",
-                detail={
-                    "risk": "READ",
-                    "result": "CHANGED",
-                    "changed_fields": [change.field for change in changes],
-                    "quote_fingerprint": refreshed_snapshot.fingerprint,
-                },
-                status="REQUIRES_CONFIRMATION",
-            )
-            run.error = None
-            self.repository.save(run)
-            detail = "；".join(
-                f"{change.field}: {change.previous} → {change.current}" for change in changes
-            )
-            return RunResponse(
-                run=run,
-                assistant_message=f"报价关键事实已变化，未创建草稿。请核对后重新确认：{detail}",
-            )
-
-        candidate = candidate.model_copy(deep=True)
-        candidate.offer = refreshed_offer
-        candidate.cost = refreshed_cost
-        candidate.policy_decision = refreshed.decision
-        candidate.approval_route = refreshed.approval_route
-        candidate.policy_reasons = refreshed.reasons
-        candidate.evidence_refs = list(
-            dict.fromkeys(
-                [
-                    *refreshed_offer.match_decision.evidence_refs,
-                    refreshed_offer.evidence.evidence_id,
-                    *refreshed.evidence_refs,
-                    *policy_knowledge_refs,
-                ]
-            )
-        )
-        run.revalidation_changes = []
-        try:
-            self.harness.begin_tool_call(
-                run,
-                tool_name="create_requisition_draft",
-                roles=employee.roles,
-                confirmed=True,
-                budget_pool=ToolBudgetPool.COMMIT,
-            )
-            self.harness.transition(
-                run,
-                RunState.DRAFT_CREATING,
-                reason="revalidation passed",
-            )
-        except HarnessBudgetExceeded as exc:
-            self._restore_waiting_confirmation(
-                run,
-                reason="draft creation budget was exhausted before the write",
-            )
-            response = self._budget_stopped(run, exc)
-            self.repository.save(run)
-            return response
-        idempotency_key = hashlib.sha256(
-            f"{run.run_id}:{candidate.offer.offer_id}:{run.requirement.version}".encode()
-        ).hexdigest()[:24]
-        run.draft = ProcurementDraft(
-            draft_id=f"draft_{idempotency_key[:12]}",
-            run_id=run.run_id,
-            idempotency_key=idempotency_key,
-            candidate=candidate,
-            approval_route=refreshed.approval_route,
-        )
-        self.harness.recovery_transition(
-            run,
-            RunState.DRAFT_CREATED,
-            reason="requisition draft created",
-        )
-        self.harness.trace(
-            run,
-            actor="Application Runtime",
-            kind="TOOL",
-            name="create_requisition_draft",
-            detail={"risk": "BUSINESS_WRITE", "draft_id": run.draft.draft_id},
-        )
-        run.error = None
-        self.repository.save(run)
-        return RunResponse(
-            run=run,
-            assistant_message=f"已创建采购草稿 {run.draft.draft_id}。状态为 DRAFT_NOT_SUBMITTED，尚未提交审批或下单。",
-        )
+        return RunResponse(run=run, assistant_message=created.assistant_message)
 
     def get(self, run_id: str, *, tenant_id: str, user_id: str) -> ProcurementRun:
         run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
@@ -581,19 +996,11 @@ class ProcurementEngine:
         cached_results = agent_context.catalog_results if agent_context else {}
         tasks = {
             provider: asyncio.create_task(
-                self.harness.execute_tool(
+                self._search_catalog_with_journal(
                     run,
-                    tool_name="search_catalog",
                     roles=employee.roles,
                     provider=provider,
-                    budget_pool=ToolBudgetPool.WORKFLOW_READ,
-                    operation=lambda provider=provider: self.catalog.search(
-                        provider,
-                        minimum_ram_gb=requirement.minimum_ram_gb,
-                        minimum_storage_gb=requirement.minimum_storage_gb,
-                        quantity=requirement.quantity,
-                        scenario=scenario,
-                    ),
+                    scenario=scenario,
                 )
             )
             for provider in PROVIDERS
@@ -667,12 +1074,19 @@ class ProcurementEngine:
 
         candidates: list[Candidate] = []
         rejected = 0
-        self.harness.begin_tool_call(
-            run,
-            tool_name="evaluate_policy",
-            roles=employee.roles,
-            confirmed=False,
-            budget_pool=ToolBudgetPool.WORKFLOW_READ,
+        offer_map = {(offer.provider, offer.offer_id): offer for offer in offers}
+        policy_results = await self.tool_gateway.invoke(
+            tool_name="evaluate_policy_batch",
+            arguments={
+                "offer_keys": [f"{offer.provider}/{offer.offer_id}" for offer in offers]
+            },
+            context=GatewayExecutionContext(
+                run=run,
+                roles=employee.roles,
+                node_name="complete_turn",
+                budget_pool=ToolBudgetPool.WORKFLOW_READ,
+                runtime_data={"offers": offer_map},
+            ),
         )
         for offer in offers:
             cost = self._calculate_cost(offer, requirement)
@@ -682,15 +1096,9 @@ class ProcurementEngine:
             if offer.variant.condition != requirement.condition:
                 rejected += 1
                 continue
-            policy = self.enterprise.evaluate(
-                employee=employee,
-                vendor_id=offer.vendor_id,
-                landed_cost=cost.unconditional_total.amount,
-                ram_gb=offer.variant.ram_gb,
-                warranty_months=offer.variant.warranty_months,
-                condition=offer.variant.condition,
-            )
-            if policy.decision == PolicyDecision.DENY:
+            policy_payload = policy_results[f"{offer.provider}/{offer.offer_id}"]
+            policy_decision = PolicyDecision(policy_payload["decision"])
+            if policy_decision == PolicyDecision.DENY:
                 rejected += 1
                 continue
             warnings: list[str] = []
@@ -699,21 +1107,21 @@ class ProcurementEngine:
             description = str(offer.evidence.fields.get("description", ""))
             if "ignore company policy" in description.lower():
                 warnings.append("检测到不可信网页指令，已作为商品数据隔离")
-            score = self._score(offer, cost, policy.decision)
+            score = self._score(offer, cost, policy_decision)
             candidates.append(
                 Candidate(
                     offer=offer,
                     cost=cost,
                     requirement_fit=1.0,
-                    policy_decision=policy.decision,
-                    approval_route=policy.approval_route,
-                    policy_reasons=policy.reasons,
+                    policy_decision=policy_decision,
+                    approval_route=policy_payload["approval_route"],
+                    policy_reasons=policy_payload["reasons"],
                     evidence_refs=list(
                         dict.fromkeys(
                             [
                                 *offer.match_decision.evidence_refs,
                                 offer.evidence.evidence_id,
-                                *policy.evidence_refs,
+                            *policy_payload["evidence_refs"],
                                 *policy_knowledge_refs,
                             ]
                         )
@@ -856,6 +1264,28 @@ class ProcurementEngine:
         run.messages.append(Message(role="assistant", content=summary))
         return RunResponse(run=run, assistant_message=summary)
 
+    async def _search_catalog_with_journal(
+        self,
+        run: ProcurementRun,
+        *,
+        roles: tuple[str, ...],
+        provider: str,
+        scenario: str | None,
+    ) -> CatalogSearchResult:
+        if scenario != run.scenario:
+            raise ValueError("Catalog scenario must come from the server-owned Run")
+        result = await self.tool_gateway.invoke(
+            tool_name="search_catalog",
+            arguments={"provider": provider},
+            context=GatewayExecutionContext(
+                run=run,
+                roles=roles,
+                node_name="complete_turn",
+                budget_pool=ToolBudgetPool.WORKFLOW_READ,
+            ),
+        )
+        return CatalogSearchResult.model_validate(result)
+
     async def _plan(self, run: ProcurementRun) -> AgentRuntimeContext:
         employee = self.enterprise.identity(run.tenant_id, run.user_id)
         context = AgentRuntimeContext(
@@ -864,6 +1294,8 @@ class ProcurementEngine:
             enterprise=self.enterprise,
             harness=self.harness,
             roles=employee.roles,
+            tool_gateway=self.tool_gateway,
+            model_gateway=self.model_gateway,
             context_assembler=self.context_assembler,
         )
         plan = await self.harness.execute_agent_turn(

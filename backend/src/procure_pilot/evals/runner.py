@@ -11,6 +11,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from agents.tool_context import ToolContext
+from langgraph.checkpoint.memory import InMemorySaver
 
 from procure_pilot.agents.runtime import AgentPlan, DeterministicAgentPlanner
 from procure_pilot.agents.tools import (
@@ -58,6 +59,7 @@ from procure_pilot.services.knowledge import PolicyKnowledgeService
 from procure_pilot.services.memory import MemoryService
 from procure_pilot.services.memory_candidates import MemoryCandidateService
 from procure_pilot.services.memory_registry import MemoryRegistry
+from procure_pilot.workflow import LangGraphProcurementWorkflow
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SCENARIO_FILE = PROJECT_ROOT / "evals" / "scenarios" / "phase1.json"
@@ -1194,6 +1196,191 @@ async def check_knowledge_005() -> tuple[bool, str]:
         return passed, json.dumps(metrics, ensure_ascii=False, sort_keys=True)
 
 
+async def check_workflow_001() -> tuple[bool, str]:
+    workflow = LangGraphProcurementWorkflow(
+        make_engine(),
+        InMemorySaver(),
+        checkpoint_backend="memory",
+    )
+    started = await workflow.start_run(
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message="采购20台开发笔记本，单台预算8000元，两周内到货",
+    )
+    clarification = await workflow.status(
+        run_id=started.run.run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+    )
+    continued = await workflow.continue_run(
+        run_id=started.run.run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message="预算含税，送雅加达，最低32GB和1TB",
+    )
+    confirmation = await workflow.status(
+        run_id=started.run.run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+    )
+    confirmed = await workflow.confirm_run(
+        run_id=started.run.run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        action_token=continued.run.action_token or "",
+    )
+    passed = (
+        clarification.waiting_at == "wait_for_user"
+        and confirmation.waiting_at == "wait_for_confirmation"
+        and confirmed.run.state == RunState.DRAFT_CREATED
+        and confirmed.run.draft is not None
+    )
+    return passed, (
+        f"clarification={clarification.waiting_at}, confirmation={confirmation.waiting_at}, "
+        f"final={confirmed.run.state}"
+    )
+
+
+async def check_workflow_002() -> tuple[bool, str]:
+    engine = make_engine()
+    checkpointer = InMemorySaver()
+    first = LangGraphProcurementWorkflow(
+        engine,
+        checkpointer,
+        checkpoint_backend="memory",
+    )
+    started = await first.start_run(
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message="采购20台开发笔记本，单台预算8000元，两周内到货",
+    )
+    recreated = LangGraphProcurementWorkflow(
+        engine,
+        checkpointer,
+        checkpoint_backend="memory",
+    )
+    blocked = False
+    try:
+        await recreated.continue_run(
+            run_id=started.run.run_id,
+            tenant_id="demo_id",
+            user_id="employee_101",
+            message="预算含税，送雅加达，最低32GB和1TB",
+        )
+    except PermissionError:
+        blocked = True
+    continued = await recreated.continue_run(
+        run_id=started.run.run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message="预算含税，送雅加达，最低32GB和1TB",
+    )
+    passed = blocked and continued.run.state == RunState.WAITING_CONFIRMATION
+    return passed, f"cross_tenant_blocked={blocked}, resumed={continued.run.state}"
+
+
+async def check_workflow_003() -> tuple[bool, str]:
+    engine = make_engine()
+    checkpointer = InMemorySaver()
+    captured: dict[str, str | bool] = {"triggered": False}
+
+    def kill_before_complete_turn(node_name, state) -> None:
+        captured["run_id"] = state["run_id"]
+        if node_name == "complete_turn:after" and not captured["triggered"]:
+            captured["triggered"] = True
+            raise RuntimeError("simulated worker kill")
+
+    first = LangGraphProcurementWorkflow(
+        engine,
+        checkpointer,
+        checkpoint_backend="memory",
+        fault_injector=kill_before_complete_turn,
+    )
+    try:
+        await first.start_run(
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            message=COMPLETE_REQUEST,
+        )
+    except RuntimeError as exc:
+        if str(exc) != "simulated worker kill":
+            raise
+    run_id = str(captured["run_id"])
+    before = engine.execution_repository.list_agents(run_id, tenant_id="demo_cn")
+    recreated = LangGraphProcurementWorkflow(
+        engine,
+        checkpointer,
+        checkpoint_backend="memory",
+    )
+    recovered = await recreated.resume_pending(
+        run_id=run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+    )
+    after = engine.execution_repository.list_agents(run_id, tenant_id="demo_cn")
+    passed = (
+        bool(captured["triggered"])
+        and recovered.run.state == RunState.WAITING_CONFIRMATION
+        and len(before) == len(after) == 1
+        and after[0].attempt_count == 1
+    )
+    return passed, f"state={recovered.run.state}, executions={len(after)}"
+
+
+async def check_workflow_004() -> tuple[bool, str]:
+    engine = make_engine()
+    checkpointer = InMemorySaver()
+    first = LangGraphProcurementWorkflow(engine, checkpointer, checkpoint_backend="memory")
+    started = await first.start_run(
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message=COMPLETE_REQUEST,
+    )
+    killed = False
+
+    def kill_before_draft(node_name, _state) -> None:
+        nonlocal killed
+        if node_name == "create_draft:after" and not killed:
+            killed = True
+            raise RuntimeError("simulated worker kill")
+
+    confirming = LangGraphProcurementWorkflow(
+        engine,
+        checkpointer,
+        checkpoint_backend="memory",
+        fault_injector=kill_before_draft,
+    )
+    try:
+        await confirming.confirm_run(
+            run_id=started.run.run_id,
+            tenant_id="demo_cn",
+            user_id="employee_001",
+            action_token=started.run.action_token or "",
+        )
+    except RuntimeError as exc:
+        if str(exc) != "simulated worker kill":
+            raise
+    recreated = LangGraphProcurementWorkflow(
+        engine,
+        checkpointer,
+        checkpoint_backend="memory",
+    )
+    recovered = await recreated.resume_pending(
+        run_id=started.run.run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+    )
+    tools = engine.execution_repository.list_tools(started.run.run_id, tenant_id="demo_cn")
+    write_count = sum(item.tool_name == "create_requisition_draft" for item in tools)
+    passed = (
+        killed
+        and recovered.run.state == RunState.DRAFT_CREATED
+        and recovered.run.draft is not None
+        and write_count == 1
+    )
+    return passed, f"state={recovered.run.state}, draft_writes={write_count}"
+
+
 async def check_replay_001() -> tuple[bool, str]:
     first = await _start(make_engine())
     second = await _start(make_engine())
@@ -1259,6 +1446,10 @@ CHECKS: dict[str, Callable[[], Awaitable[tuple[bool, str]]]] = {
     "knowledge-003": check_knowledge_003,
     "knowledge-004": check_knowledge_004,
     "knowledge-005": check_knowledge_005,
+    "workflow-001": check_workflow_001,
+    "workflow-002": check_workflow_002,
+    "workflow-003": check_workflow_003,
+    "workflow-004": check_workflow_004,
     "replay-001": check_replay_001,
 }
 
@@ -1320,6 +1511,10 @@ async def run_evaluation() -> dict:
         "knowledge-003",
         "knowledge-004",
         "knowledge-005",
+        "workflow-001",
+        "workflow-002",
+        "workflow-003",
+        "workflow-004",
         "replay-001",
     }
     match_metrics = grade_catalog_matching()
@@ -1465,6 +1660,18 @@ async def run_evaluation() -> dict:
                 "holdout_hybrid_signal_rate"
             ],
             "knowledge_labeled_query_count": retrieval_metrics["labeled_queries"],
+            "langgraph_interrupt_resume_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "workflow-001").passed
+            else 0.0,
+            "langgraph_rehydration_tenant_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "workflow-002").passed
+            else 0.0,
+            "langgraph_pending_resume_pass_rate": 1.0
+            if next(item for item in results if item.case_id == "workflow-003").passed
+            else 0.0,
+            "langgraph_kill_restart_write_safety_rate": 1.0
+            if next(item for item in results if item.case_id == "workflow-004").passed
+            else 0.0,
         },
         "results": [asdict(result) for result in results],
     }

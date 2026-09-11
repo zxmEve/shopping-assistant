@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 
 import pytest
+from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import func, select
 
 from procure_pilot.domain.models import Message, ProcurementRun, RunState
@@ -13,12 +14,16 @@ from procure_pilot.harness.runtime import (
     AgentHarness,
     PersistenceConflictError,
 )
+from procure_pilot.persistence.execution_repository import SqlAlchemyExecutionRepository
 from procure_pilot.persistence.models import (
+    AgentExecutionRecord,
     RunMessageRecord,
     RunTraceEventRecord,
+    ToolCallRecord,
 )
 from procure_pilot.persistence.repository import SqlAlchemyRunRepository
 from procure_pilot.services.engine import ProcurementEngine
+from procure_pilot.workflow import LangGraphProcurementWorkflow
 
 
 def make_repository(tmp_path) -> SqlAlchemyRunRepository:
@@ -135,3 +140,47 @@ async def test_database_unique_constraint_rejects_duplicate_draft_identity(tmp_p
 
     with pytest.raises(PersistenceConflictError, match="uniqueness constraint"):
         repository.save(duplicate)
+
+
+@pytest.mark.asyncio
+async def test_database_persists_agent_executions_and_tool_calls(tmp_path):
+    repository = make_repository(tmp_path)
+    execution_repository = SqlAlchemyExecutionRepository(engine=repository.engine)
+    engine = ProcurementEngine(
+        catalog=FixtureCatalogAdapter(),
+        enterprise=FixtureEnterpriseGateway(),
+        repository=repository,
+        harness=AgentHarness(secret="execution-journal-test"),
+        execution_repository=execution_repository,
+    )
+    workflow = LangGraphProcurementWorkflow(
+        engine,
+        InMemorySaver(),
+        checkpoint_backend="memory",
+    )
+
+    recommendation = await workflow.start_run(
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message=COMPLETE_REQUEST,
+    )
+    completed = await workflow.confirm_run(
+        run_id=recommendation.run.run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        action_token=recommendation.run.action_token or "",
+    )
+
+    agents = execution_repository.list_agents(completed.run.run_id, tenant_id="demo_cn")
+    tools = execution_repository.list_tools(completed.run.run_id, tenant_id="demo_cn")
+    assert completed.run.state == RunState.DRAFT_CREATED
+    assert len(agents) == 1
+    assert {item.tool_name for item in tools} >= {
+        "search_catalog",
+        "revalidate_quote",
+        "evaluate_policy",
+        "create_requisition_draft",
+    }
+    with repository.session_factory() as session:
+        assert session.scalar(select(func.count()).select_from(AgentExecutionRecord)) == 1
+        assert session.scalar(select(func.count()).select_from(ToolCallRecord)) == len(tools)

@@ -21,7 +21,8 @@
 - consent-backed 长期记忆表与 API，覆盖 Profile/Team/Episodic/Semantic、版本化修改、软删除和审计；
 - 制度知识独立文档/版本/条款、治理角色发布、PostgreSQL GIN FTS + pgvector HNSW、RRF 融合、时态/租户过滤、版本化引用和 Policy-as-Code 一致性门禁；
 - PDF/DOCX/TXT/Markdown 文件上传、原文件哈希/元数据归档、DOCX 表格提取、扫描 PDF OCR 接口、OpenAI embedding provider 与 tenant-scoped 可恢复回填；
-- 47 个版本化场景、独立 deterministic/live JSON/HTML 自动评测报告；
+- LangGraph 默认工作流 Runtime：确定性条件路由、两个人工等待点的 `interrupt/resume`、tenant-scoped thread 与业务状态版本防陈旧校验；JSON/测试模式使用内存 checkpoint，PostgreSQL 模式使用异步持久化 checkpoint；
+- 51 个版本化场景、独立 deterministic/live JSON/HTML 自动评测报告；
 - Makefile、Dockerfile、Compose 和环境变量模板。
 
 ## 2. 已执行验证
@@ -29,8 +30,8 @@
 | 验证 | 实际结果 |
 |---|---:|
 | Ruff | 通过 |
-| Python pytest | 117/117 通过 |
-| Phase 1 scenario eval | 47/47 通过 |
+| Python pytest | 126/126 通过 |
+| Phase 1 scenario eval | 51/51 通过 |
 | Veto failures | 0 |
 | Frontend ESLint | 通过 |
 | TypeScript + Vite production build | 通过 |
@@ -42,6 +43,7 @@
 | DeepSeek live Agent | 3/3 通过；p95 10.859 秒 |
 | PostgreSQL 17 migration + 完整采购闭环 | 通过 |
 | PostgreSQL 17 文件落库 + 3 chunk 模型回填 + 混合检索 | 通过 |
+| PostgreSQL LangGraph checkpoint 跨 Runtime 恢复 | 通过 |
 
 PostgreSQL 17 容器、Alembic 升级和数据库端到端采购闭环已经实际运行；backend Docker 镜像已构建，并在容器内完成扫描 PDF 的 Tesseract OCR smoke。frontend 生产构建已通过，完整 Compose 三服务联调仍需单独验证。
 
@@ -49,7 +51,7 @@ PostgreSQL 17 容器、Alembic 升级和数据库端到端采购闭环已经实�
 
 | 指标 | 结果 |
 |---|---:|
-| Task success rate | 100%（47/47） |
+| Task success rate | 100%（51/51） |
 | Product match precision（9 条 hard cases） | 100% |
 | Variant match precision（9 条 hard cases） | 100% |
 | Hard false merge count | 0 |
@@ -89,6 +91,9 @@ PostgreSQL 17 容器、Alembic 升级和数据库端到端采购闭环已经实�
 | Knowledge retrieval Hit@3 / MRR | 100%（12 条 fixture） |
 | Knowledge holdout Hit@3 / MRR | 100%（7 条 holdout fixture） |
 | Knowledge no-answer accuracy | 100%（4 条负例） |
+| LangGraph interrupt/resume | 100%（2 条工作流场景） |
+| LangGraph 重建/租户隔离 | 100%（2 条工作流场景） |
+| LangGraph pending/kill-restart 恢复 | 100%（2 条工作流场景） |
 
 Product/Variant 指标由带明确预期的 9 条 hard cases 计算：6 条合法格式/变体（含新品、翻新、二手、单机与套装）、2 条硬冲突和 1 条关键字段缺失。它能证明当前 Fixture 上没有 hard false merge，但样本量很小，不能外推为真实商城准确率。逐事实 evidence coverage 仍未形成完整指标；当前只验证 Candidate 和 Match Decision 的引用存在性。
 
@@ -100,19 +105,20 @@ DeepSeek `deepseek-v4-flash` 使用同一套 Harness 和 fixture 工具连续运
 
 上述历史 live 报告只把 `WAITING_CONFIRMATION` 作为成功终点。现在代码已将预算拆为 `agent_read_tool_calls`、`workflow_read_tool_calls` 和带预留的 `commit_tool_calls`，总工具上限调为 21；`confirm()` 在进入 `REVALIDATING` 前预检 3 次状态迁移并预留 3 次 commit 调用，失败会释放余额并保持或恢复到 `WAITING_CONFIRMATION`。Live runner 也已继续执行确认并以 `DRAFT_CREATED`、草稿存在和 trajectory 通过为成功条件。fake live-shape 回归已证明 9 次 Agent 读取后仍可完成 `9 + 1 + 3 = 13` 次分阶段调用；更新后的 DeepSeek 真实模型闭环尚未重跑，因此不能把旧的 3/3 表述为草稿成功率。
 
-数据库验证使用 PostgreSQL 17 + pgvector 0.8.6：Alembic 已升级到 `20260910_0007`；制度表、唯一/时态索引、GIN FTS 和 HNSW cosine 索引均已创建。独立验证租户完成 DOCX 上传、原二进制一致性校验、3 个 chunk 模型 ID 切换回填，以及带 FTS/vector 双通道引用的 RRF 检索。采购数据库闭环仍执行 start -> confirm -> draft；跨租户读取、乐观锁和重复草稿身份继续由数据库约束。
+数据库验证使用 PostgreSQL 17 + pgvector 0.8.6：知识管线 migration 为 `20260910_0007`，当前 Alembic head 已升级到执行日志 migration `20260910_0008`；制度表、执行日志表、唯一/时态索引、GIN FTS 和 HNSW cosine 索引均已创建。独立验证租户完成 DOCX 上传、原二进制一致性校验、3 个 chunk 模型 ID 切换回填，以及带 FTS/vector 双通道引用的 RRF 检索。采购数据库闭环仍执行 start -> confirm -> draft；跨租户读取、乐观锁和重复草稿身份继续由数据库约束。LangGraph 使用其官方 `AsyncPostgresSaver.setup()` 管理 checkpoint schema，并已验证首个 Worker 在业务保存后退出，第二个 Runtime 通过 `resume_pending` 恢复且不重复 Agent execution。
 
 ## 5. 尚未验证
 
 - 更大规模真实模型稳定性、长对话质量、Provider 账单与估算费用的一致性；
 - 真实商城/API、登录态、限流和数据漂移；
 - PostgreSQL 行级安全、生产连接池与监控；真实企业制度上的语义 embedding/OCR 质量基线、Temporal、Kafka 和自进化尚未实现；
+- LangGraph 已支持人工等待和独立执行节点恢复；Agent SDK 内部单个工具调用中途恢复、跨进程租约、自动任务扫描、取消、Outbox 和完整 cassette 尚未实现；
 - 完整 Compose 三服务启动与联调；
 - 多浏览器和真实手机兼容性。
 
-因此简历可以写“完成确定性 fixture 闭环、DeepSeek Agent 受控工具链小样本验证、PostgreSQL/pgvector、长期记忆、制度文件解析/混合检索/回填首片、47 场景确定性评测”，不能写“生产级跨平台实时比价已上线”，也不能把 12 条检索标注、小样本 live 或 100% fixture 分数表述为生产准确率。
+因此简历可以写“完成确定性 fixture 闭环、DeepSeek Agent 受控工具链小样本验证、LangGraph 人工中断/执行节点恢复与 PostgreSQL checkpoint、PostgreSQL/pgvector、长期记忆、制度文件解析/混合检索/回填首片、51 场景确定性评测”，不能写“生产级跨平台实时比价已上线”，也不能把 12 条检索标注、小样本 live 或 100% fixture 分数表述为生产准确率。
 
-完整 P0 的逐条状态、证据和缺口见 `08-requirements-traceability.md`。独立 `procure-live-eval` 会把成功率、token、延迟、估算费用和轨迹结果写入 `evals/reports/live/`。熔断仍是单进程状态，checkpoint/cassette 也未完成；商品归一只覆盖 Fixture 笔记本表达。Fixture Session 只用于离线演示，生产环境仍需对接 OIDC/SSO。
+完整 P0 的逐条状态、证据和缺口见 `08-requirements-traceability.md`。独立 `procure-live-eval` 会把成功率、token、延迟、估算费用和轨迹结果写入 `evals/reports/live/`。熔断仍是单进程状态；Agent/Tool 执行日志和 pending resume 已完成，但跨进程租约与完整 cassette 尚未完成。商品归一只覆盖 Fixture 笔记本表达。Fixture Session 只用于离线演示，生产环境仍需对接 OIDC/SSO。
 
 ## 6. 复现命令
 

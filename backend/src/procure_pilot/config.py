@@ -1,3 +1,4 @@
+import json
 from functools import lru_cache
 from pathlib import Path
 
@@ -12,6 +13,21 @@ class Settings(BaseSettings):
     environment: str = "fixture"
     repository_backend: str = "json"
     database_url: str | None = None
+    budget_backend: str = "memory"
+    redis_url: str | None = None
+    budget_reservation_ttl_seconds: int = 300
+    budget_platform_daily_micro_usd: int = 10_000_000
+    budget_platform_monthly_micro_usd: int = 100_000_000
+    budget_tenant_monthly_micro_usd: int = 50_000_000
+    budget_user_daily_micro_usd: int = 5_000_000
+    budget_tenant_timezone: str = "Asia/Shanghai"
+    budget_provider_limits_json: str = "{}"
+    budget_tenant_monthly_overrides_json: str = "{}"
+    budget_user_daily_overrides_json: str = "{}"
+    tool_provider_costs_micro_usd_json: str = "{}"
+    model_max_reservation_micro_usd: int = 100_000
+    workflow_backend: str = "langgraph"
+    workflow_checkpoint_backend: str = "auto"
     agent_mode: str = "deterministic"
     agent_topology: str = "two_agent"
     model_provider: str = "openai"
@@ -73,6 +89,37 @@ class Settings(BaseSettings):
             "requirement": self.requirement_model or self.specialist_model or self.openai_model,
             "sourcing": self.sourcing_model or self.specialist_model or self.openai_model,
         }
+
+    @property
+    def budget_provider_limits(self) -> dict[str, dict[str, int]]:
+        payload = json.loads(self.budget_provider_limits_json)
+        if not isinstance(payload, dict):
+            raise ValueError("PROCURE_BUDGET_PROVIDER_LIMITS_JSON must be a JSON object")
+        return {
+            str(provider): {str(period).upper(): int(amount) for period, amount in limits.items()}
+            for provider, limits in payload.items()
+        }
+
+    @property
+    def tool_provider_costs_micro_usd(self) -> dict[str, int]:
+        payload = json.loads(self.tool_provider_costs_micro_usd_json)
+        if not isinstance(payload, dict):
+            raise ValueError("PROCURE_TOOL_PROVIDER_COSTS_MICRO_USD_JSON must be a JSON object")
+        return {str(provider): int(amount) for provider, amount in payload.items()}
+
+    @property
+    def budget_tenant_monthly_overrides(self) -> dict[str, int]:
+        payload = json.loads(self.budget_tenant_monthly_overrides_json)
+        if not isinstance(payload, dict):
+            raise ValueError("PROCURE_BUDGET_TENANT_MONTHLY_OVERRIDES_JSON must be an object")
+        return {str(tenant): int(amount) for tenant, amount in payload.items()}
+
+    @property
+    def budget_user_daily_overrides(self) -> dict[str, int]:
+        payload = json.loads(self.budget_user_daily_overrides_json)
+        if not isinstance(payload, dict):
+            raise ValueError("PROCURE_BUDGET_USER_DAILY_OVERRIDES_JSON must be an object")
+        return {str(user): int(amount) for user, amount in payload.items()}
 
 
 @lru_cache

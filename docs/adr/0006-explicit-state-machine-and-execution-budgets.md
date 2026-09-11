@@ -109,7 +109,7 @@ REVALIDATING -> DRAFT_CREATING -> DRAFT_CREATED
 - 阶段预算、确认前预留和安全恢复已经实现；更新后的 runner 以 `DRAFT_CREATED` 为成功条件，但尚未重跑 DeepSeek，因此历史 3/3 结果仍只证明到达 `WAITING_CONFIRMATION`。
 - commit reservation 当前随 Run 快照保存，尚未实现跨进程租约、过期回收与未知写结果的 `RECONCILING` 状态。
 - 当前熔断器和并发信号量是单进程内存状态，多实例共享熔断需要 Redis 或网关支持。
-- PostgreSQL Repository 已用 `lock_version` 提供数据库乐观锁；默认 JSON 模式不具备跨进程保护。独立 checkpoint、pause/resume/cancel 仍延后到 M5。
+- PostgreSQL Repository 已用 `lock_version` 提供数据库乐观锁；默认 JSON 模式不具备跨进程保护。M5 已用 LangGraph 实现人工等待与关键执行节点 checkpoint、`agent_executions/tool_calls` 和 pending resume；cancel、自动恢复扫描与跨进程租约仍待完成。
 - 通用超时/重试包装器已经用于异步 Provider 报价读取；同步企业规则和本地草稿创建仍是确定性进程内调用，不宣称已经具备外部服务级故障恢复。
 - 目前没有完整 cassette，故障可通过 Fixture 场景复现，但还不能回放真实模型和外部工具轨迹。
 

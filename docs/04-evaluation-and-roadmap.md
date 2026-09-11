@@ -303,7 +303,7 @@ flowchart LR
 - 进程内多来源商品 fixture 和企业 fixture gateway；
 - 主动追问、同款归一、成本/预算/制度校验、有证据推荐；
 - HITL、action token、幂等采购草稿；
-- 最小 Harness、trace、确定性结果投影和 42 个 golden 场景；完整 cassette 尚待实现；
+- 最小 Harness、trace、确定性结果投影和 51 个 golden 场景；完整 cassette 尚待实现；
 - 对话、比较、确认和 trace 四个最小 UI 区域。
 
 退出条件：满足[第一阶段范围与完成指标](06-phase-one-scope.md)中的全部 veto 指标和质量门槛。此阶段不接 Temporal、Kafka、长期记忆、浏览器和 live provider。
@@ -337,6 +337,8 @@ flowchart LR
 ### Phase 5：工程可靠性增强
 
 交付 checkpoint/resume/cancel、完整 cassette replay、跨进程熔断、Outbox，必要时再引入 Temporal。退出条件是进程和外部依赖故障可恢复，离线轨迹能够稳定复现。
+
+当前结果：LangGraph 已成为默认 Application Runtime，在 `WAITING_USER` 与 `WAITING_CONFIRMATION` 使用真实 `interrupt/resume`；Requirement/Sourcing、报价复核、制度复核和草稿写入已形成独立节点，`agent_executions/tool_calls` 保存幂等执行结果，`resume_pending` 可恢复非 interrupt 节点。内存、SQLite 故障测试和 PostgreSQL checkpointer 均已验证。Agent SDK 内部工具调用中途恢复、自动扫描 Worker、cancel、租约、Outbox 和 cassette 仍未完成。
 
 ### Phase 6：真实集成与受控自进化
 

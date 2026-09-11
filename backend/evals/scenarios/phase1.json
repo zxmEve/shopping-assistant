@@ -45,5 +45,9 @@
   {"case_id":"knowledge-003","category":"policy_knowledge","description":"制度文档版本与Policy-as-Code不一致时一票否决","expected":"POLICY_VERSION_CONFLICT_VETO","requirement_ids":["GOV-03"],"acceptance_refs":["M4-RAG-VERSION"]},
   {"case_id":"knowledge-004","category":"policy_knowledge","description":"匹配制度条款作为引用进入推荐证据但不替代规则裁决","expected":"ENGINE_POLICY_CITATION_GROUNDING","requirement_ids":["GOV-03"],"acceptance_refs":["M4-RAG-ENGINE"]},
   {"case_id":"knowledge-005","category":"policy_knowledge","description":"FTS与向量双路召回经RRF融合后通过条款级标注集评测","expected":"HYBRID_RETRIEVAL_HIT_AT_3_MRR","requirement_ids":[],"acceptance_refs":["M4-RAG-HYBRID-EVAL"]},
+  {"case_id":"workflow-001","category":"workflow_runtime","description":"LangGraph在追问和确认节点持久化interrupt并恢复到草稿终态","expected":"LANGGRAPH_INTERRUPT_RESUME_TO_DRAFT","requirement_ids":["HITL-01","OPS-01"],"acceptance_refs":["M5-LANGGRAPH-HITL"]},
+  {"case_id":"workflow-002","category":"workflow_runtime","description":"重建Graph对象后可从checkpoint恢复且跨租户恢复被拒绝","expected":"LANGGRAPH_REHYDRATION_TENANT_GUARD","requirement_ids":["IAM-02","OPS-01"],"acceptance_refs":["M5-LANGGRAPH-RECOVERY"]},
+  {"case_id":"workflow-003","category":"workflow_runtime","description":"Agent节点完成后Worker终止，resume_pending从下一执行节点继续且不重复Agent调用","expected":"PENDING_NODE_RESUME_WITHOUT_AGENT_REPLAY","requirement_ids":["OPS-01","OPS-02"],"acceptance_refs":["M5-LANGGRAPH-PENDING"]},
+  {"case_id":"workflow-004","category":"workflow_runtime","description":"制度复核后Worker终止，重启后只创建一个幂等采购草稿","expected":"KILL_RESTART_SINGLE_BUSINESS_WRITE","requirement_ids":["HITL-04","OPS-01"],"acceptance_refs":["M5-LANGGRAPH-KILL-RESTART"]},
   {"case_id":"replay-001","category":"fault_safety","description":"同输入确定性回放","expected":"ZERO_DIFF","requirement_ids":["OPS-05"]}
 ]

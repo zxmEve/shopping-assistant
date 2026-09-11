@@ -6,6 +6,8 @@ from typing import Any
 from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     JSON,
+    BigInteger,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
@@ -94,6 +96,201 @@ class RunTraceEventRecord(Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     detail: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, nullable=False)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
+
+
+class AgentExecutionRecord(Base):
+    __tablename__ = "agent_executions"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_agent_executions_idempotency_key"),
+        Index("ix_agent_executions_tenant_run", "tenant_id", "run_id"),
+        Index("ix_agent_executions_status", "status", "updated_at"),
+    )
+
+    execution_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("procurement_runs.run_id", ondelete="CASCADE"), nullable=False
+    )
+    node_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    agent_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    task_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    state_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON_DOCUMENT)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ToolCallRecord(Base):
+    __tablename__ = "tool_calls"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_tool_calls_idempotency_key"),
+        Index("ix_tool_calls_tenant_run", "tenant_id", "run_id"),
+        Index("ix_tool_calls_status", "status", "updated_at"),
+    )
+
+    tool_call_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("procurement_runs.run_id", ondelete="CASCADE"), nullable=False
+    )
+    node_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    agent_execution_id: Mapped[str | None] = mapped_column(
+        ForeignKey("agent_executions.execution_id", ondelete="SET NULL")
+    )
+    tool_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider: Mapped[str | None] = mapped_column(String(128))
+    risk: Mapped[str] = mapped_column(String(32), nullable=False)
+    budget_pool: Mapped[str] = mapped_column(String(32), nullable=False)
+    input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    arguments_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, nullable=False, default=dict
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    lease_owner: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fencing_token: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    result_json: Mapped[dict[str, Any] | None] = mapped_column(JSON_DOCUMENT)
+    error: Mapped[str | None] = mapped_column(Text)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BudgetPolicyRecord(Base):
+    __tablename__ = "budget_policies"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope_type",
+            "scope_key",
+            "provider_kind",
+            "provider_id",
+            "metric",
+            "period_type",
+            "version",
+            name="uq_budget_policies_scope_version",
+        ),
+        Index("ix_budget_policies_lookup", "scope_type", "scope_key", "enabled"),
+    )
+
+    policy_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    provider_kind: Mapped[str | None] = mapped_column(String(32))
+    provider_id: Mapped[str | None] = mapped_column(String(256))
+    metric: Mapped[str] = mapped_column(String(64), nullable=False)
+    period_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    period_timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="UTC")
+    hard_limit: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    soft_limit: Mapped[int | None] = mapped_column(BigInteger)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
+    effective_from: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    effective_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BudgetReservationRecord(Base):
+    __tablename__ = "budget_reservations"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_budget_reservations_idempotency"),
+        Index("ix_budget_reservations_status_expiry", "status", "expires_at"),
+        Index("ix_budget_reservations_tenant_user", "tenant_id", "user_id"),
+    )
+
+    reservation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    tenant_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    tool_call_id: Mapped[str | None] = mapped_column(String(64))
+    agent_execution_id: Mapped[str | None] = mapped_column(String(64))
+    provider_invocation_id: Mapped[str | None] = mapped_column(String(64))
+    invocation_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    model: Mapped[str | None] = mapped_column(String(256))
+    pricing_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    reserved_amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    actual_amount: Mapped[int | None] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_request_id: Mapped[str | None] = mapped_column(String(256))
+    settlement_basis: Mapped[str | None] = mapped_column(String(64))
+    applied_limits_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSON_DOCUMENT, nullable=False
+    )
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, nullable=False, default=dict
+    )
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class BudgetLedgerEntryRecord(Base):
+    __tablename__ = "budget_ledger_entries"
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id",
+            "scope_type",
+            "scope_key",
+            "period_start",
+            "metric",
+            name="uq_budget_ledger_event_scope",
+        ),
+        Index("ix_budget_ledger_scope_period", "scope_type", "scope_key", "period_start"),
+        Index("ix_budget_ledger_reservation", "reservation_id", "occurred_at"),
+    )
+
+    entry_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    reservation_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    metric: Mapped[str] = mapped_column(String(64), nullable=False)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    delta_reserved: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    delta_committed: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    currency: Mapped[str] = mapped_column(String(8), nullable=False, default="USD")
+    policy_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON_DOCUMENT, nullable=False, default=dict
+    )
+
+
+class BudgetOutboxRecord(Base):
+    __tablename__ = "budget_outbox"
+    __table_args__ = (
+        UniqueConstraint("event_id", name="uq_budget_outbox_event"),
+        Index("ix_budget_outbox_pending", "processed_at", "available_at"),
+    )
+
+    outbox_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    reservation_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON_DOCUMENT, nullable=False)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class LongTermMemoryRecord(Base):

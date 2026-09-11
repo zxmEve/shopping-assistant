@@ -41,7 +41,7 @@
 - 已增加定义版本、稳定品类 ID、正式 Tag ID、有效期、置信度和 metadata；
 - Consent 与记忆在同一事务写入，重复请求由请求 ID 和命令指纹保护；
 - 普通员工不能写 TEAM 记忆；新确认值会将旧值标记为 `SUPERSEDED`；
-- 已完成上下文、Registry、候选确认和制度文件/混合检索专项测试，总后端回归为 117/117；
+- 已完成上下文、Registry、候选确认、制度文件/混合检索和 LangGraph 工作流专项测试，总后端回归为 126/126；
 - 已建立独立 Knowledge Document/Version/Chunk 表和 Alembic `20260910_0007`；
 - 已实现原文哈希、页码噪声清理、标题/编号条款优先切块和 CJK unigram/bigram 索引文本；
 - 已实现治理角色导入/发布/重建索引 API，以及 tenant/category/effective/version 过滤；

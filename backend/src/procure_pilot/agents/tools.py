@@ -15,11 +15,12 @@ from procure_pilot.domain.models import (
     ProcurementRun,
     ToolBudgetPool,
 )
-from procure_pilot.services.costing import calculate_landed_cost
 
 if TYPE_CHECKING:
     from procure_pilot.fixtures.catalog import FixtureCatalogAdapter
     from procure_pilot.fixtures.enterprise import FixtureEnterpriseGateway
+    from procure_pilot.gateway.model_gateway import ModelGateway
+    from procure_pilot.gateway.tool_gateway import ToolGateway
     from procure_pilot.harness.runtime import AgentHarness
     from procure_pilot.services.context import ContextAssembler
 
@@ -77,6 +78,9 @@ class AgentRuntimeContext:
     enterprise: FixtureEnterpriseGateway
     harness: AgentHarness
     roles: tuple[str, ...]
+    tool_gateway: ToolGateway | None = None
+    model_gateway: ModelGateway | None = None
+    agent_kind: str | None = None
     context_assembler: ContextAssembler | None = None
     requirement_inspected: bool = False
     budget_checked: bool = False
@@ -90,6 +94,49 @@ class AgentRuntimeContext:
     policy_evaluation_started: bool = False
     proposed_candidates: list[AgentCandidateProposal] = field(default_factory=list)
     decision_rationale: str = ""
+
+    def require_gateway(self) -> ToolGateway:
+        if self.tool_gateway is None:
+            from procure_pilot.gateway.tool_gateway import ToolGateway, build_default_tool_registry
+            from procure_pilot.persistence.budget_repository import InMemoryBudgetRepository
+            from procure_pilot.persistence.execution_repository import InMemoryExecutionRepository
+            from procure_pilot.services.budget import (
+                InMemoryBudgetService,
+                StaticBudgetLimitProvider,
+            )
+
+            limit_provider = StaticBudgetLimitProvider(
+                platform_daily=10_000_000_000,
+                platform_monthly=100_000_000_000,
+                tenant_monthly=50_000_000_000,
+                user_daily=5_000_000_000,
+            )
+            self.tool_gateway = ToolGateway(
+                registry=build_default_tool_registry(
+                    catalog=self.catalog,
+                    enterprise=self.enterprise,
+                ),
+                harness=self.harness,
+                execution_repository=InMemoryExecutionRepository(),
+                budget_service=InMemoryBudgetService(
+                    InMemoryBudgetRepository(), limit_provider=limit_provider
+                ),
+                budget_limit_provider=limit_provider,
+            )
+        return self.tool_gateway
+
+    def gateway_context(self, *, budget_pool: ToolBudgetPool) -> Any:
+        self.require_gateway()
+        from procure_pilot.gateway.tool_gateway import GatewayExecutionContext
+
+        return GatewayExecutionContext(
+            run=self.run,
+            roles=self.roles,
+            node_name=f"agent:{self.agent_kind or 'unknown'}",
+            budget_pool=budget_pool,
+            agent_kind=self.agent_kind,
+            runtime_data={"offers": self.offers},
+        )
 
     def remember_catalog_result(self, result: CatalogSearchResult) -> None:
         self.catalog_results[result.provider] = result
@@ -193,29 +240,14 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
         context = wrapper.context
         if context.requirement_inspected:
             raise ValueError("Requirement inspection already completed for this Agent run.")
-        context.harness.begin_tool_call(
-            context.run,
-            tool_name="inspect_requirement",
-            roles=context.roles,
-            confirmed=False,
-            budget_pool=ToolBudgetPool.AGENT_READ,
+        payload = await context.require_gateway().invoke(
+            tool_name="inspect_procurement_requirement",
+            arguments={},
+            context=context.gateway_context(budget_pool=ToolBudgetPool.AGENT_READ),
         )
+        result = RequirementToolResult.model_validate(payload)
+        missing = result.missing_fields
         requirement = context.run.requirement
-        required = (
-            "quantity",
-            "unit_budget",
-            "budget_tax_included",
-            "delivery_city",
-            "minimum_ram_gb",
-            "minimum_storage_gb",
-        )
-        missing = [name for name in required if getattr(requirement, name) is None]
-        result = RequirementToolResult(
-            requirement_version=requirement.version,
-            requirement=requirement.model_dump(mode="json"),
-            missing_fields=missing,
-            ready_for_sourcing=not missing,
-        )
         context.requirement_inspected = True
         context.harness.trace(
             context.run,
@@ -240,22 +272,12 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
         if context.budget_lookup_started:
             raise ValueError("Budget lookup already completed for this Agent run.")
         context.budget_lookup_started = True
-        context.harness.begin_tool_call(
-            context.run,
+        payload = await context.require_gateway().invoke(
             tool_name="get_budget",
-            roles=context.roles,
-            confirmed=False,
-            budget_pool=ToolBudgetPool.AGENT_READ,
+            arguments={},
+            context=context.gateway_context(budget_pool=ToolBudgetPool.AGENT_READ),
         )
-        employee = context.enterprise.identity(context.run.tenant_id, context.run.user_id)
-        budget = context.enterprise.budget(employee)
-        result = BudgetToolResult(
-            cost_center=budget.cost_center,
-            available=str(budget.available),
-            currency=budget.currency,
-            version=budget.version,
-            evidence_ref=context.enterprise.BUDGET_REF,
-        )
+        result = BudgetToolResult.model_validate(payload)
         context.budget_checked = True
         context.harness.trace(
             context.run,
@@ -263,9 +285,9 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
             kind="TOOL",
             name="get_budget",
             detail={
-                "cost_center": budget.cost_center,
-                "version": budget.version,
-                "evidence_ref": context.enterprise.BUDGET_REF,
+                "cost_center": result.cost_center,
+                "version": result.version,
+                "evidence_ref": result.evidence_ref,
             },
         )
         return result
@@ -292,19 +314,10 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
         if provider in context.catalog_requested_providers:
             raise ValueError(f"Catalog provider {provider} was already requested.")
         context.catalog_requested_providers.add(provider)
-        result = await context.harness.execute_tool(
-            context.run,
+        result = await context.require_gateway().invoke(
             tool_name="search_catalog",
-            roles=context.roles,
-            provider=provider,
-            budget_pool=ToolBudgetPool.AGENT_READ,
-            operation=lambda: context.catalog.search(
-                provider,
-                minimum_ram_gb=requirement.minimum_ram_gb,
-                minimum_storage_gb=requirement.minimum_storage_gb,
-                quantity=requirement.quantity,
-                scenario=context.run.scenario,
-            ),
+            arguments={"provider": provider},
+            context=context.gateway_context(budget_pool=ToolBudgetPool.AGENT_READ),
         )
         context.remember_catalog_result(result)
         summaries = [
@@ -368,15 +381,12 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
         if len(context.cost_requested_offers) >= 3:
             raise ValueError("Landed-cost call limit already reached for this Agent run.")
         context.cost_requested_offers.add(offer_key)
-        context.harness.begin_tool_call(
-            context.run,
+        breakdown = await context.require_gateway().invoke(
             tool_name="calculate_landed_cost",
-            roles=context.roles,
-            confirmed=False,
-            budget_pool=ToolBudgetPool.AGENT_READ,
+            arguments={"provider": provider, "offer_id": offer_id},
+            context=context.gateway_context(budget_pool=ToolBudgetPool.AGENT_READ),
         )
         context.cost_checked_offers.add((provider, offer_id))
-        breakdown = calculate_landed_cost(offer, context.run.requirement)
         context.harness.trace(
             context.run,
             actor="Cost Service",
@@ -409,26 +419,17 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
     ) -> PolicyToolResult:
         """Evaluate budget, vendor and procurement policy for a searched canonical offer."""
         context = wrapper.context
-        offer = context.require_offer(provider, offer_id)
+        context.require_offer(provider, offer_id)
         if context.policy_evaluation_started:
             raise ValueError("Policy evaluation already completed for this Agent run.")
         context.policy_evaluation_started = True
-        context.harness.begin_tool_call(
-            context.run,
+        payload = await context.require_gateway().invoke(
             tool_name="evaluate_policy",
-            roles=context.roles,
-            confirmed=False,
-            budget_pool=ToolBudgetPool.AGENT_READ,
+            arguments={"provider": provider, "offer_id": offer_id},
+            context=context.gateway_context(budget_pool=ToolBudgetPool.AGENT_READ),
         )
-        cost = calculate_landed_cost(offer, context.run.requirement)
-        employee = context.enterprise.identity(context.run.tenant_id, context.run.user_id)
-        decision = context.enterprise.evaluate(
-            employee=employee,
-            vendor_id=offer.vendor_id,
-            landed_cost=cost.unconditional_total.amount,
-            ram_gb=offer.variant.ram_gb,
-            warranty_months=offer.variant.warranty_months,
-            condition=offer.variant.condition,
+        result = PolicyToolResult.model_validate(
+            {"provider": provider, "offer_id": offer_id, **payload}
         )
         context.policy_checked_offers.add((provider, offer_id))
         context.harness.trace(
@@ -439,18 +440,11 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
             detail={
                 "provider": provider,
                 "offer_id": offer_id,
-                "decision": decision.decision,
-                "evidence_refs": decision.evidence_refs,
+                "decision": result.decision,
+                "evidence_refs": result.evidence_refs,
             },
         )
-        return PolicyToolResult(
-            provider=provider,
-            offer_id=offer_id,
-            decision=decision.decision,
-            approval_route=decision.approval_route,
-            reasons=decision.reasons,
-            evidence_refs=decision.evidence_refs,
-        )
+        return result
 
     return {
         tool.name: tool

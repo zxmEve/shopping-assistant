@@ -24,6 +24,10 @@ from procure_pilot.agents.tools import (
     build_function_tools,
 )
 from procure_pilot.domain.models import BudgetResource, Message
+from procure_pilot.gateway.tool_gateway import (
+    DEFAULT_AGENT_TOOL_NAMES,
+    GatewayToolRegistry,
+)
 from procure_pilot.harness.runtime import HarnessBudgetExceeded
 
 
@@ -62,8 +66,7 @@ class StaleAgentResultError(TwoAgentRuntimeError):
 # Models only get the minimum read capability needed for judgement. Cost, budget,
 # policy, state transitions and writes are deliberately absent.
 AGENT_TOOL_ALLOWLIST: dict[AgentKind, tuple[str, ...]] = {
-    AgentKind.REQUIREMENT: ("inspect_procurement_requirement",),
-    AgentKind.SOURCING: ("search_catalog",),
+    AgentKind(kind): names for kind, names in DEFAULT_AGENT_TOOL_NAMES.items()
 }
 
 AGENT_TRACE_ALLOWLIST: dict[AgentKind, frozenset[str]] = {
@@ -85,13 +88,21 @@ class AgentFactory:
     def available_agents(self) -> list[AgentKind]:
         return list(AGENT_TOOL_ALLOWLIST)
 
-    def allowed_tools(self, agent: AgentKind) -> tuple[str, ...]:
+    def allowed_tools(
+        self, agent: AgentKind, registry: GatewayToolRegistry | None = None
+    ) -> tuple[str, ...]:
+        if registry is not None:
+            return tuple(item.name for item in registry.for_agent(agent.value))
         try:
             return AGENT_TOOL_ALLOWLIST[agent]
         except KeyError as exc:
             raise TwoAgentRuntimeError(f"No capability registered for {agent}") from exc
 
-    def allowed_trace_tools(self, agent: AgentKind) -> frozenset[str]:
+    def allowed_trace_tools(
+        self, agent: AgentKind, registry: GatewayToolRegistry | None = None
+    ) -> frozenset[str]:
+        if registry is not None:
+            return frozenset(item.policy_name for item in registry.for_agent(agent.value))
         try:
             return AGENT_TRACE_ALLOWLIST[agent]
         except KeyError as exc:
@@ -267,7 +278,9 @@ class TwoAgentPlanner:
     ) -> AgentResult:
         task = envelope.task
         execution_id = f"ax_{uuid4().hex[:12]}"
-        allowed_tools = self.agent_factory.allowed_tools(task.agent)
+        gateway_registry = context.require_gateway().registry
+        allowed_tools = self.agent_factory.allowed_tools(task.agent, gateway_registry)
+        context.agent_kind = task.agent.value
         trace_start = len(context.run.trace)
         context.harness.trace(
             context.run,
@@ -313,7 +326,7 @@ class TwoAgentPlanner:
             if event.kind == "TOOL" and event.detail.get("agent_execution_id") == execution_id
         ]
         forbidden = {event.name for event in tool_events} - self.agent_factory.allowed_trace_tools(
-            task.agent
+            task.agent, gateway_registry
         )
         if forbidden:
             raise TwoAgentRuntimeError(

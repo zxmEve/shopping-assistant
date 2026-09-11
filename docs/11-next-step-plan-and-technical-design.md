@@ -1,7 +1,7 @@
 # 项目进度与下一步计划
 
 > 更新日期：2026-09-10
-> 当前主线：M3.3 文件 ingestion、可配置真实 embedding、可恢复回填与 holdout 扩容已完成；下一步进入 M4 执行检查点与恢复。
+> 当前主线：LangGraph Runtime、HITL interrupt、关键执行节点、`agent_executions/tool_calls` 和 `resume_pending` 已完成；下一步是跨进程租约、自动恢复扫描和取消。
 
 ## 1. 当前结论
 
@@ -9,7 +9,7 @@
 
 ```text
 用户请求
-  -> Application Runtime（固定路由）
+  -> LangGraph Application Runtime（确定性 StateGraph）
      -> Requirement Agent（需求不完整时）
      -> Sourcing Agent（需求完整时）
   -> 商品匹配 / 成本 / 预算 / 制度 / 证据服务
@@ -39,7 +39,8 @@
 | 记忆候选 | 已完成 M2.3 | 安全终态提取、PII/凭证/临时需求过滤、接受/拒绝/过期、幂等写入与 UI |
 | 制度知识混合检索 | 已完成 M3.2 | 独立文档/版本/条款，GIN FTS + pgvector HNSW，RRF/确定性重排，权限/时态预过滤，引用与规则版本一致性校验 |
 | 文件与向量生命周期 | 已完成 M3.3 | PDF/DOCX/TXT/Markdown、安全边界、扫描件 OCR 接口、OpenAI embedding、tenant 分批回填、12 条开发/留出标签 |
-| 自动测试 | 已完成当前基线 | 117 个后端测试和 47 个确定性评测通过；12 条检索 fixture 的开发/留出 Hit@3、MRR 和无答案准确率为 1.0 |
+| LangGraph Workflow | 已完成首片 | 默认 StateGraph、两个 interrupt、内存/PostgreSQL checkpointer、tenant/thread/version 恢复保护、legacy 回滚 |
+| 自动测试 | 已完成当前基线 | 126 个后端测试和 51 个确定性评测通过；含 LangGraph interrupt/resume、pending/kill-restart 恢复和 legacy 回滚门禁 |
 
 ## 3. 还没有完成
 
@@ -48,7 +49,7 @@
 - 候选提取当前是保守的确定性规则，只覆盖 Registry 中已登记的笔记本偏好；更复杂表达可在后续接入受 Schema 约束的模型提取器，但不能改变确认边界。
 - Registry 当前来自版本控制 YAML，尚未从真实 PIM/ERP 主数据同步；Tag 暂存为正式 ID 数组，未拆关联表。
 - 制度结论仍来自版本化 Policy-as-Code；OpenAI embedding 适配器已实现，但默认仍用可复现的哈希 n-gram，尚未在真实企业制度与线上 API 上建立语义质量/费用基线。
-- PostgreSQL 按请求边界保存 Run；尚未把每个 Agent execution/checkpoint 做成可租约恢复的记录。
+- LangGraph 已把 Requirement/Sourcing、报价复核、制度复核和草稿写入拆成关键节点；Agent/Tool 结果有独立执行日志，`resume_pending` 可继续非 interrupt 节点。尚无跨进程租约、自动扫描、cancel，Agent SDK 内部工具循环仍以 Agent 节点为最小恢复单位。
 - 两 Agent 新拓扑已完成 DeepSeek 12-case × 1 smoke（12/12），尚未执行 ×3 稳定性门禁。
 - “Agent 进化”只有评测和报告基础，还没有形成提案、离线验证、人工审批、canary、回滚闭环。
 
@@ -141,15 +142,25 @@ embedding 配置与 Agent 模型配置隔离；`OpenAIEmbeddingProvider` 使用�
 
 评测现有 5 条 development 与 7 条 holdout 标签，分别报告 Hit@3、MRR、无答案准确率和双路信号覆盖率。当前全部为 1.0，但仍只是围绕两条 fixture 制度构造的小样本，不代表生产检索准确率；真实企业语料、复杂版式 OCR 和 citation precision/recall 留到后续数据建设。
 
-### M4：持久化执行与检查点
+### M4：持久化执行与检查点（关键节点恢复已完成）
 
 目标：进程退出后能从最后一个安全步骤恢复，而不是重新执行整个 Run。
 
-增加：
+已完成：
+
+- 默认 `langgraph`、可回滚 `legacy` 的 workflow backend；
+- `WAITING_USER` / `WAITING_CONFIRMATION` 两个真实 interrupt；
+- `thread_id = tenant_id:run_id`，恢复前重新按 tenant/user 加载 Run；
+- checkpoint 中的 `expected_run_version` 与业务 Run 对比，拒绝陈旧恢复；
+- JSON/测试模式 `InMemorySaver`，PostgreSQL 模式 `AsyncPostgresSaver`；
+- 重建 Workflow 对象与 PostgreSQL 新连接后可继续同一 Run。
+
+下一切片增加：
 
 - `agent_executions`：角色、task、state_version、状态、模型、token、费用；
 - `tool_calls`：参数指纹、风险、尝试次数、结果引用；
-- `checkpoints`：状态快照、待办动作、租约和过期时间；
+- Agent/工具调用拆为更细的 Graph node/task，缩小失败重跑范围；
+- 跨进程 worker 租约、取消和过期时间；
 - Outbox：草稿/通知事件与数据库事务一起提交；
 - 跨进程幂等和 reservation 回收。
 
@@ -182,4 +193,4 @@ embedding 配置与 Agent 模型配置隔离；`OpenAIEmbeddingProvider` 使用�
 
 ## 6. 最近的一个具体开发任务
 
-下一次开发应完成 **M4 持久化 Agent execution—checkpoint—跨进程租约—恢复/取消** 的最小纵向切片。第一步先冻结 execution/checkpoint 状态机与幂等键，再实现“进程在工具调用后退出、重启后不重复副作用”的故障测试。DeepSeek ×3 稳定性门禁仍需在发布前补齐。
+M4.2 已完成 Agent execution/tool call 持久化、关键节点拆分、pending resume，以及 Agent 完成后和写入前 kill/restart 故障测试。下一次开发应完成 **M4.3 跨进程 lease/heartbeat、自动恢复扫描与 cancel**，并增加“来源 A 完成、来源 B 时进程退出，恢复后不重复 A”的 Agent SDK 内部工具级故障测试。DeepSeek ×3 稳定性门禁仍需在发布前补齐。

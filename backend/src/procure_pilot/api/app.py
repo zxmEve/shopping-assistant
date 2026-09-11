@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime
 from functools import lru_cache
 from typing import Annotated, Literal
@@ -24,6 +25,12 @@ from procure_pilot.agents.runtime import (
 )
 from procure_pilot.bootstrap import build_policy_knowledge_service
 from procure_pilot.config import Settings, get_settings
+from procure_pilot.domain.budget import (
+    BudgetContext,
+    BudgetScopeType,
+    InvocationKind,
+    ProviderKind,
+)
 from procure_pilot.domain.knowledge import (
     KnowledgeDocumentVersion,
     KnowledgeSearchResult,
@@ -46,10 +53,19 @@ from procure_pilot.harness.runtime import (
     RunRepository,
 )
 from procure_pilot.persistence import (
+    InMemoryBudgetRepository,
+    SqlAlchemyBudgetRepository,
     SqlAlchemyKnowledgeRepository,
     SqlAlchemyMemoryCandidateRepository,
     SqlAlchemyMemoryRepository,
     SqlAlchemyRunRepository,
+)
+from procure_pilot.persistence.execution_repository import SqlAlchemyExecutionRepository
+from procure_pilot.services.budget import (
+    BudgetExceededError,
+    InMemoryBudgetService,
+    RedisBudgetService,
+    StaticBudgetLimitProvider,
 )
 from procure_pilot.services.context import ContextPolicy
 from procure_pilot.services.document_ingestion import DocumentParseError
@@ -58,6 +74,7 @@ from procure_pilot.services.knowledge import KnowledgeIngestResult, PolicyKnowle
 from procure_pilot.services.memory import MemoryService
 from procure_pilot.services.memory_candidates import MemoryCandidateService
 from procure_pilot.services.memory_registry import MemoryRegistry
+from procure_pilot.workflow import ProcurementWorkflowRuntime, WorkflowStatus
 
 
 class StartRunRequest(BaseModel):
@@ -183,12 +200,16 @@ def get_engine() -> ProcurementEngine:
             "(explicit_multi_agent and direct_tools are accepted as migration aliases)."
         )
     memory_repository = None
+    execution_repository = None
+    budget_repository = InMemoryBudgetRepository()
     if settings.repository_backend == "postgres":
         if not settings.database_url:
             raise RuntimeError(
                 "PROCURE_DATABASE_URL is required when PROCURE_REPOSITORY_BACKEND=postgres"
             )
         repository = SqlAlchemyRunRepository(settings.database_url)
+        execution_repository = SqlAlchemyExecutionRepository(engine=repository.engine)
+        budget_repository = SqlAlchemyBudgetRepository(engine=repository.engine)
         memory_repository = SqlAlchemyMemoryRepository(settings.database_url)
         knowledge_repository = SqlAlchemyKnowledgeRepository(settings.database_url)
     elif settings.repository_backend == "json":
@@ -196,6 +217,32 @@ def get_engine() -> ProcurementEngine:
         knowledge_repository = None
     else:
         raise RuntimeError(f"Unsupported PROCURE_REPOSITORY_BACKEND: {settings.repository_backend}")
+    budget_limit_provider = StaticBudgetLimitProvider(
+        platform_daily=settings.budget_platform_daily_micro_usd,
+        platform_monthly=settings.budget_platform_monthly_micro_usd,
+        tenant_monthly=settings.budget_tenant_monthly_micro_usd,
+        user_daily=settings.budget_user_daily_micro_usd,
+        tenant_timezone=settings.budget_tenant_timezone,
+        provider_limits=settings.budget_provider_limits,
+        tenant_monthly_overrides=settings.budget_tenant_monthly_overrides,
+        user_daily_overrides=settings.budget_user_daily_overrides,
+    )
+    if settings.budget_backend == "redis":
+        if not settings.redis_url:
+            raise RuntimeError("PROCURE_REDIS_URL is required when budget backend is redis")
+        from redis.asyncio import Redis
+
+        budget_service = RedisBudgetService(
+            Redis.from_url(settings.redis_url, decode_responses=False),
+            budget_repository,
+            limit_provider=budget_limit_provider,
+        )
+    elif settings.budget_backend == "memory":
+        budget_service = InMemoryBudgetService(
+            budget_repository, limit_provider=budget_limit_provider
+        )
+    else:
+        raise RuntimeError("Unsupported PROCURE_BUDGET_BACKEND. Use memory or redis.")
     return ProcurementEngine(
         catalog=FixtureCatalogAdapter(),
         enterprise=FixtureEnterpriseGateway(),
@@ -228,6 +275,12 @@ def get_engine() -> ProcurementEngine:
             if knowledge_repository is not None
             else None
         ),
+        execution_repository=execution_repository,
+        budget_service=budget_service,
+        budget_limit_provider=budget_limit_provider,
+        provider_costs_micro_usd=settings.tool_provider_costs_micro_usd,
+        model_max_reservation_micro_usd=settings.model_max_reservation_micro_usd,
+        budget_reservation_ttl_seconds=settings.budget_reservation_ttl_seconds,
     )
 
 
@@ -238,10 +291,24 @@ def create_app(
     knowledge_repository: SqlAlchemyKnowledgeRepository | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
+    active_engine = engine or get_engine()
+    workflow_runtime = ProcurementWorkflowRuntime(active_engine, settings)
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        if isinstance(active_engine.budget_service, RedisBudgetService):
+            await active_engine.budget_service.ensure_ready()
+        await workflow_runtime.open()
+        try:
+            yield
+        finally:
+            await workflow_runtime.close()
+
     app = FastAPI(
         title="ProcurePilot API",
         version="0.1.0",
         description="Evidence-grounded enterprise procurement agent demo",
+        lifespan=lifespan,
     )
     app.add_middleware(
         CORSMiddleware,
@@ -250,7 +317,6 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    active_engine = engine or get_engine()
     active_memory_registry = active_engine.memory_registry or MemoryRegistry.from_yaml(
         settings.memory_registry_path
     )
@@ -358,6 +424,14 @@ def create_app(
     async def persistence_conflict_handler(_, exc: PersistenceConflictError):
         return _json_error(409, "VERSION_CONFLICT", str(exc))
 
+    @app.exception_handler(BudgetExceededError)
+    async def budget_exceeded_handler(_, exc: BudgetExceededError):
+        return _json_error(
+            429,
+            "COST_BUDGET_EXCEEDED",
+            f"费用预算已用尽，请在 {exc.reset_at.isoformat()} 后重试。",
+        )
+
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {
@@ -365,26 +439,93 @@ def create_app(
             "mode": settings.agent_mode,
             "topology": settings.agent_topology,
             "environment": settings.environment,
+            "workflow_backend": settings.workflow_backend,
+            "checkpoint_backend": workflow_runtime.checkpoint_backend,
         }
 
     @app.get("/api/agent/topology")
     async def agent_topology() -> dict:
-        return topology_description(
+        result = topology_description(
             settings.agent_mode,
             settings.openai_model,
             settings.model_provider,
             settings.agent_topology,
             models=settings.resolved_agent_models,
         )
+        result["workflow_runtime"] = workflow_runtime.description
+        return result
 
     @app.get("/api/agent/tools")
     async def agent_tools(
         context: Annotated[RequestContext, Depends(request_context)],
     ) -> dict:
         employee = active_engine.enterprise.identity(context.tenant_id, context.user_id)
+        visible_definitions = [
+            active_engine.tool_gateway.registry.get(name)
+            for name in active_engine.tool_gateway.registry.names()
+            if set(employee.roles).intersection(
+                active_engine.tool_gateway.registry.get(name).allowed_roles
+            )
+        ]
         return {
-            "registry_version": active_engine.harness.tool_registry.version,
-            "tools": active_engine.harness.available_tools(employee.roles),
+            "registry_version": "v1",
+            "tools": [
+                {
+                    "name": item.name,
+                    "risk": item.risk.value,
+                    "exposure": item.exposure,
+                }
+                for item in visible_definitions
+            ],
+            "tools_by_agent": {
+                agent_kind: [
+                    item.name
+                    for item in active_engine.tool_gateway.registry.for_agent(agent_kind)
+                    if set(employee.roles).intersection(item.allowed_roles)
+                ]
+                for agent_kind in ("REQUIREMENT", "SOURCING")
+            },
+        }
+
+    @app.get("/api/budgets/me")
+    async def my_cost_budgets(
+        context: Annotated[RequestContext, Depends(request_context)],
+        provider_kind: ProviderKind = ProviderKind.MODEL,
+        provider_id: Annotated[str, Query(min_length=1, max_length=128)] = "openai",
+        model: Annotated[str | None, Query(max_length=128)] = None,
+    ) -> dict:
+        active_engine.enterprise.identity(context.tenant_id, context.user_id)
+        snapshots = await active_engine.budget_service.snapshot(
+            BudgetContext(
+                tenant_id=context.tenant_id,
+                user_id=context.user_id,
+                run_id="budget-snapshot",
+                invocation_kind=InvocationKind.MODEL,
+                provider_kind=provider_kind,
+                provider_id=provider_id,
+                model=model,
+            )
+        )
+        visible = [
+            item
+            for item in snapshots
+            if item.applied_limit.scope_type != BudgetScopeType.PLATFORM
+        ]
+        return {
+            "unit": "micro_usd",
+            "budgets": [
+                {
+                    "scope_type": item.applied_limit.scope_type.value,
+                    "scope_key": item.applied_limit.scope_key,
+                    "period_type": item.applied_limit.period_type.value,
+                    "limit": item.applied_limit.hard_limit,
+                    "reserved": item.reserved,
+                    "committed": item.committed,
+                    "available": item.available,
+                    "reset_at": item.applied_limit.period_end,
+                }
+                for item in visible
+            ],
         }
 
     @app.get("/api/memory-definitions")
@@ -720,7 +861,7 @@ def create_app(
         request: StartRunRequest,
         context: Annotated[RequestContext, Depends(request_context)],
     ) -> RunResponse:
-        return await active_engine.start(
+        return await workflow_runtime.start_run(
             tenant_id=context.tenant_id,
             user_id=context.user_id,
             message=request.message,
@@ -733,7 +874,7 @@ def create_app(
         request: ContinueRunRequest,
         context: Annotated[RequestContext, Depends(request_context)],
     ) -> RunResponse:
-        return await active_engine.continue_run(
+        return await workflow_runtime.continue_run(
             run_id=run_id,
             tenant_id=context.tenant_id,
             user_id=context.user_id,
@@ -747,7 +888,7 @@ def create_app(
         request: ConfirmRunRequest,
         context: Annotated[RequestContext, Depends(request_context)],
     ) -> RunResponse:
-        response = await active_engine.confirm(
+        response = await workflow_runtime.confirm_run(
             run_id=run_id,
             tenant_id=context.tenant_id,
             user_id=context.user_id,
@@ -773,6 +914,47 @@ def create_app(
                 )
             active_engine.repository.save(response.run)
         return response
+
+    @app.get("/api/runs/{run_id}/workflow", response_model=WorkflowStatus)
+    async def workflow_status(
+        run_id: str,
+        context: Annotated[RequestContext, Depends(request_context)],
+    ) -> WorkflowStatus:
+        return await workflow_runtime.status(
+            run_id=run_id,
+            tenant_id=context.tenant_id,
+            user_id=context.user_id,
+        )
+
+    @app.post("/api/runs/{run_id}/workflow/resume", response_model=RunResponse)
+    async def resume_pending_workflow(
+        run_id: str,
+        context: Annotated[RequestContext, Depends(request_context)],
+    ) -> RunResponse:
+        return await workflow_runtime.resume_pending(
+            run_id=run_id,
+            tenant_id=context.tenant_id,
+            user_id=context.user_id,
+        )
+
+    @app.get("/api/runs/{run_id}/executions")
+    async def run_executions(
+        run_id: str,
+        context: Annotated[RequestContext, Depends(request_context)],
+    ) -> dict:
+        active_engine.get(
+            run_id,
+            tenant_id=context.tenant_id,
+            user_id=context.user_id,
+        )
+        return {
+            "agent_executions": active_engine.execution_repository.list_agents(
+                run_id, tenant_id=context.tenant_id
+            ),
+            "tool_calls": active_engine.execution_repository.list_tools(
+                run_id, tenant_id=context.tenant_id
+            ),
+        }
 
     @app.get("/api/runs/{run_id}", response_model=ProcurementRun)
     async def get_run(

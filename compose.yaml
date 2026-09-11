@@ -1,4 +1,17 @@
 services:
+  redis:
+    image: redis:7.4-alpine
+    command: redis-server --appendonly yes --appendfsync always --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis-data:/data
+
   postgres:
     image: pgvector/pgvector:0.8.6-pg17
     environment:
@@ -24,6 +37,11 @@ services:
       PROCURE_ENVIRONMENT: fixture
       PROCURE_REPOSITORY_BACKEND: postgres
       PROCURE_DATABASE_URL: postgresql+psycopg://procure:procure-local-only@postgres:5432/procure_pilot
+      PROCURE_BUDGET_BACKEND: redis
+      PROCURE_REDIS_URL: redis://redis:6379/0
+      PROCURE_WORKFLOW_BACKEND: ${PROCURE_WORKFLOW_BACKEND:-langgraph}
+      PROCURE_WORKFLOW_CHECKPOINT_BACKEND: ${PROCURE_WORKFLOW_CHECKPOINT_BACKEND:-postgres}
+      LANGGRAPH_STRICT_MSGPACK: "true"
       PROCURE_AGENT_MODE: ${PROCURE_AGENT_MODE:-deterministic}
       PROCURE_AGENT_TOPOLOGY: ${PROCURE_AGENT_TOPOLOGY:-two_agent}
       PROCURE_MODEL_PROVIDER: ${PROCURE_MODEL_PROVIDER:-openai}
@@ -43,6 +61,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     build: ./frontend
@@ -51,5 +71,22 @@ services:
     ports:
       - "5173:80"
 
+  budget-worker:
+    build: ./backend
+    command: >-
+      sh -c "uv run alembic upgrade head && uv run procure-budget-worker"
+    environment:
+      PROCURE_ENVIRONMENT: fixture
+      PROCURE_REPOSITORY_BACKEND: postgres
+      PROCURE_DATABASE_URL: postgresql+psycopg://procure:procure-local-only@postgres:5432/procure_pilot
+      PROCURE_BUDGET_BACKEND: redis
+      PROCURE_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres-data:
+  redis-data:

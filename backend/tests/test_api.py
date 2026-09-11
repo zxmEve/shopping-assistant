@@ -26,6 +26,10 @@ def test_api_core_flow(tmp_path):
     assert started.status_code == 200
     assert started.json()["run"]["state"] == "WAITING_USER"
     run_id = started.json()["run"]["run_id"]
+    workflow = client.get(f"/api/runs/{run_id}/workflow", headers=CN_SESSION)
+    assert workflow.status_code == 200
+    assert workflow.json()["backend"] == "langgraph"
+    assert workflow.json()["waiting_at"] == "wait_for_user"
 
     continued = client.post(
         f"/api/runs/{run_id}/messages",
@@ -43,6 +47,15 @@ def test_api_core_flow(tmp_path):
     )
     assert confirmed.status_code == 200
     assert confirmed.json()["run"]["draft"]["status"] == "DRAFT_NOT_SUBMITTED"
+    executions = client.get(f"/api/runs/{run_id}/executions", headers=CN_SESSION)
+    assert executions.status_code == 200
+    assert len(executions.json()["agent_executions"]) == 2
+    assert {item["tool_name"] for item in executions.json()["tool_calls"]} >= {
+        "search_catalog",
+        "revalidate_quote",
+        "evaluate_policy",
+        "create_requisition_draft",
+    }
 
 
 def test_api_blocks_cross_tenant(tmp_path):
@@ -112,6 +125,20 @@ def test_api_exposes_only_role_allowed_tools(tmp_path):
     assert "create_requisition_draft" in names
     assert "place_order" not in names
     assert "approve_requisition" not in names
+
+
+def test_api_returns_authenticated_user_cost_budget_snapshot(tmp_path):
+    client = TestClient(
+        create_app(settings=Settings(run_store_path=tmp_path / "runs.json"), engine=make_engine())
+    )
+
+    response = client.get("/api/budgets/me", headers=CN_SESSION)
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["unit"] == "micro_usd"
+    assert {item["scope_type"] for item in payload["budgets"]} >= {"TENANT", "USER"}
+    assert "PLATFORM" not in {item["scope_type"] for item in payload["budgets"]}
 
 
 def test_memory_api_requires_consent_and_supports_edit_delete(tmp_path):

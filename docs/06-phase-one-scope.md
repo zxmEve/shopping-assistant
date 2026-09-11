@@ -63,7 +63,7 @@
 
 选择原因：这些能力直接决定 Agent 是否可控、可查和可评测。Temporal、Kafka、复杂熔断和分布式调度先不引入。
 
-### 2.8 42 个核心评测场景
+### 2.8 51 个核心评测场景
 
 第一阶段不追求 60/180 个数量；初始 20 个高密度场景完成后，又增加 3 个商品归一场景、3 个 Harness 场景、7 个 Agent 场景、3 个数据库场景和 3 个长期记忆场景：
 
@@ -79,6 +79,9 @@
 | Agent Runtime | 7 | 严格只读工具面、可信 Offer 链、多轮消息上下文、结构化选品、错误候选 veto、合法轨迹、重复调用识别 |
 | Database Runtime | 3 | 完整回写、tenant/user 隔离、旧版本写入冲突 |
 | Memory Runtime | 3 | 个人/团队读取边界、创建者写权限、版本化修改/删除和审计 |
+| Memory Candidate | 3 | 候选提取、接受/拒绝/过期、去重与冲突提示 |
+| Policy Knowledge | 5 | 引用、租户/时态过滤、版本 veto、Engine grounding 与混合检索 |
+| Workflow Runtime | 4 | LangGraph interrupt/resume、Runtime 重建、pending node 恢复和 kill/restart 写安全 |
 
 选择原因：先验证场景 Schema、grader 和回放是否可靠，再扩数据；低质量的大评测集会掩盖系统问题。
 
@@ -122,7 +125,7 @@ Phase 1 已完成核心闭环的首轮实现和确定性评测，但不等同完
 | 金额 golden exact match | 100% |
 | 价格/规格/预算/制度事实 evidence coverage | 100% |
 | 商品描述间接 prompt injection 导致策略/工具越权 | 0 次 |
-| 42 个场景 deterministic replay | 100% 可复现 |
+| 51 个场景 deterministic replay | 100% 可复现 |
 
 任何一项失败，第一阶段不得标记完成。
 
@@ -130,7 +133,7 @@ Phase 1 已完成核心闭环的首轮实现和确定性评测，但不等同完
 
 | 指标 | 初始门槛 |
 |---|---:|
-| 42 个场景端到端任务成功率 | >= 85%（至少 36/42） |
+| 51 个场景端到端任务成功率 | >= 85%（至少 44/51） |
 | 必要追问字段 Recall | >= 95% |
 | 不必要问题率 | <= 10% |
 | 最大连续追问轮数 | <= 3 |
@@ -161,7 +164,7 @@ Phase 1 已完成核心闭环的首轮实现和确定性评测，但不等同完
 
 1. 一键启动的 fixture Demo；
 2. 一条正常采购和一条攻击/故障演示脚本；
-3. 47 个版本化场景、golden state、grader 和确定性结果投影；完整 cassette 仍按追踪矩阵补齐；
+3. 51 个版本化场景、golden state、grader 和确定性结果投影；完整 cassette 仍按追踪矩阵补齐；
 4. 可查看的 Agent/tool/state/evidence trace；
 5. 自动生成的 HTML/JSON 评测报告；
 6. 架构说明、已知限制和失败案例复盘；

@@ -23,7 +23,7 @@
 | M2.1 DeepSeek 真实多 Agent | 显式服务端调度独立 Agent、阶段预算、完整 Live 确认闭环 | 进行中：S2 调度内核与 fixture 验证已完成 | DeepSeek 总控与专家发生独立模型执行，正常 Live case 可安全到达 `DRAFT_CREATED` |
 | M3 数据库基础 | PostgreSQL、SQLAlchemy/Alembic、tenant-scoped repository、状态版本和业务唯一约束 | 已完成最小纵向切片 | JSON Repository 可由数据库实现替换，跨租户与并发写入测试通过 |
 | M4 长期记忆与 RAG | Profile/Team/Episodic、结构化 Registry/Consent、Agent Context、文件 ingestion、pgvector + FTS | 已完成最小纵向切片 | 记忆准确、安全、可删除且不越租户，制度回答带版本化证据 |
-| M5 工程可靠性增强 | checkpoint/resume/cancel、cassette replay、跨进程熔断，必要时 Temporal | 未开始 | 重启和外部依赖故障可恢复，离线轨迹可重复回放 |
+| M5 工程可靠性增强 | checkpoint/resume/cancel、cassette replay、跨进程熔断，必要时 Temporal | 进行中：LangGraph 人工等待边界 checkpoint/resume 首片已完成 | 重启和外部依赖故障可恢复，离线轨迹可重复回放 |
 | M6 完整评测与自进化 | 60/180 场景、holdout、shadow/canary/rollback | 未开始 | 候选版本不能绕过 veto 和人工批准 |
 | M7 面试交付 | 六套 Demo、架构材料、失败复盘、讲解稿 | 未开始 | 一键演示，所有数字可由报告复现 |
 
@@ -37,7 +37,7 @@
 | 4 | 信息价值追问、公司标准授权和三轮停止 | 已完成 |
 | 5 | Product/Variant/Offer 真正归一、冲突字段和置信度 | 已完成 |
 | 6 | 状态迁移表、budgets、timeout/retry/circuit | 已完成最小纵向切片 |
-| 7 | checkpoint/resume/cancel 和 cassette replay | 延后至 M5 |
+| 7 | checkpoint/resume/cancel 和 cassette replay | M5 进行中：关键节点 checkpoint、执行日志和 pending resume 已完成，lease/cancel/replay 待做 |
 | 8 | 逐事实 evidence、trade-off UI 和五套 P0 Demo | Agent 闭环后补齐 |
 
 ## 4. 当前优先顺序
@@ -50,7 +50,7 @@ S2 Provider 无关的双 Agent Runtime（已完成）
 -> M4.4 制度 FTS 与引用回传（已完成最小纵向切片）
 -> M4.5 pgvector + RRF 混合检索与检索评测（已完成最小纵向切片）
 -> M4.6 PDF/DOCX/OCR ingestion、真实 embedding 与检索集扩容（已完成最小纵向切片）
--> M5 checkpoint/replay 等工程可靠性增强（下一步）
+-> M5 lease/heartbeat、自动恢复扫描、cancel 与 replay（下一步）
 -> M6 完整评测与受控自进化
 -> M7 面试交付
 ```

@@ -9,7 +9,7 @@ ProcurePilot 只把“需要理解和权衡”的工作交给模型，把“必�
 - **Requirement Agent（需求 Agent）**：识别还缺哪些关键信息，帮助系统提出最少、最有价值的问题。
 - **Sourcing Agent（寻源 Agent）**：查看多个已授权商品来源，在真实返回的报价中提出一个候选。
 
-总控不是 Agent。`Application Runtime` 用固定代码根据需求是否完整选择要执行的 Agent。预算、金额、制度、证据、状态、确认和写入也都不是 Agent。
+总控不是 Agent。`Application Runtime` 现在由 LangGraph `StateGraph` 实现，用确定性条件边根据业务状态选择节点。预算、金额、制度、证据、权限和写入仍不是 Agent。
 
 ## 2. 为什么只保留两个 Agent
 
@@ -36,7 +36,7 @@ ProcurePilot 只把“需要理解和权衡”的工作交给模型，把“必�
 flowchart TB
     U[用户] --> UI[React Web]
     UI --> API[FastAPI]
-    API --> RT[Application Runtime<br/>固定流程，不是 Agent]
+    API --> RT[LangGraph Application Runtime<br/>确定性 StateGraph，不是 Agent]
 
     RT -->|需求不完整| RA[Requirement Agent]
     RT -->|需求完整| SA[Sourcing Agent]
@@ -49,7 +49,8 @@ flowchart TB
     RT --> POLICY[预算与制度规则]
     RT --> KB[制度知识 FTS + pgvector + RRF<br/>版本化条款引用]
     RT --> EVIDENCE[候选与证据校验]
-    RT --> STATE[状态机与检查点]
+    RT --> CP[LangGraph interrupt + checkpoint]
+    RT --> STATE[Harness 状态迁移与执行约束]
     RT --> HITL[人工确认与幂等写入]
 
     MATCH --> PG[(JSON / PostgreSQL)]
@@ -58,6 +59,7 @@ flowchart TB
     KB --> PG
     EVIDENCE --> PG
     STATE --> PG
+    CP --> PG
     HITL --> PG
 
     CAT --> P1[内部目录]
@@ -95,7 +97,7 @@ flowchart TB
 sequenceDiagram
     actor U as 用户
     participant API as API
-    participant RT as Application Runtime
+    participant RT as LangGraph Runtime
     participant RA as Requirement Agent
     participant SA as Sourcing Agent
     participant CAT as Catalog Service
@@ -141,14 +143,15 @@ sequenceDiagram
     end
 ```
 
-## 7. Runtime 和 Harness 如何分工
+## 7. LangGraph Runtime 和 Harness 如何分工
 
-`Application Runtime` 决定业务顺序：
+LangGraph Runtime 决定业务顺序和技术暂停位置：
 
 - 需求不完整时只执行 Requirement Agent；
 - 需求完整时只执行 Sourcing Agent；
 - Agent 返回后依次执行固定的业务服务；
 - 决定等待用户、等待确认、失败或创建草稿。
+- 在 `wait_for_user`、`wait_for_confirmation` 保存 checkpoint，并用同一 thread 恢复。
 
 `Harness` 约束每一次执行：
 
@@ -159,6 +162,8 @@ sequenceDiagram
 - Trace：记录谁在什么版本调用了什么、结果和证据是什么；
 - HITL：Business Write 必须携带有效 Action Token；
 - 幂等：重复确认不会创建第二个草稿。
+
+两者的划分标准是：Graph 回答“下一步执行什么、从哪里恢复”，Harness 回答“即使 Graph 或模型出错，这个动作是否仍被允许”。Graph edge 是正常路径，Harness 的状态表、权限和 Action Token 是不能绕过的业务不变量。
 
 ## 8. 模型选错工具或参数怎么办
 
@@ -175,6 +180,6 @@ sequenceDiagram
 
 ## 9. 当前与后续边界
 
-当前已实现：两个 Agent、确定性业务服务、状态机、执行预算、三来源并行读取、有限重试/熔断、证据校验、人工确认、写前复核、幂等草稿、JSON/PostgreSQL Repository、长期记忆闭环，以及制度文档版本化发布、FTS/pgvector 双路召回、RRF 重排和条款引用。
+当前已实现：LangGraph 默认 Runtime、内存/PostgreSQL checkpointer、两个 interrupt、两个 Agent、确定性业务服务、Harness 状态/执行预算、三来源并行读取、有限重试/熔断、证据校验、人工确认、写前复核、幂等草稿、长期记忆闭环，以及制度文件解析、FTS/pgvector 双路召回、RRF 重排和条款引用。
 
-M2.1 已将授权长期记忆通过 ContextAssembler 接入两个 Agent，M2.2 已完成受控 Key/Category/Tag、结构化值和 Consent，M2.3 已完成安全终态候选提取、用户确认和幂等写入。制度 RAG 已完成混合检索最小纵向切片；下一步补 PDF/DOCX/OCR ingestion、真实 embedding provider 与更大标注集，再继续持久化 Agent execution/checkpoint、跨进程租约、真实 Provider 更大样本评测和受控 Agent 进化。
+当前 checkpoint 覆盖 API 多轮边界、Requirement/Sourcing Agent、报价复核、制度复核和草稿写入；`agent_executions/tool_calls` 为昂贵调用提供幂等结果记录，`resume_pending` 可在 Worker 重启后继续非 interrupt 节点。下一步增加跨进程租约、自动恢复扫描、取消语义和 Agent SDK 内部工具级故障恢复。具体状态和节点见[LangGraph 工作流与 Harness 边界](13-langgraph-workflow-technical-design.md)。

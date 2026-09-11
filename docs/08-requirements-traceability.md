@@ -53,8 +53,8 @@
 | HITL-03 | IMPLEMENTED | 确认时重新读取报价并刷新身份、预算、制度和供应商；报价变化返回 Diff 并要求重确认 | 尚未为预算、制度和供应商快照建立变化 Diff |
 | HITL-04 | VERIFIED | 业务幂等键、同进程并发确认测试和 PostgreSQL 草稿身份唯一约束 | 外部审批系统仍需提供自己的幂等接口 |
 | HITL-05 | VERIFIED | API/UI 明确 `DRAFT_NOT_SUBMITTED` | 无 |
-| OPS-01 | IMPLEMENTED | 显式迁移表是唯一状态写入口；state_version 与 state_events 连续校验；PostgreSQL `lock_version` 条件更新拒绝旧版本写入 | 缺 pause/resume/cancel 和独立 checkpoint |
-| OPS-02 | IMPLEMENTED | Run 固化 state/agent/tool/provider/retry/token/cost/time 额度与用量；DeepSeek live runner 已验证 token 记账和版本化费用估算 | 费用是公开价格估算而非账单；局部业务结果还需 checkpoint 化 |
+| OPS-01 | IMPLEMENTED | 显式迁移表是唯一业务状态写入口；state_version 与 state_events 连续校验；PostgreSQL `lock_version` 条件更新拒绝旧版本写入；LangGraph 已实现人工 interrupt、细粒度关键节点和 `resume_pending`，SQLite/PostgreSQL 均验证重启恢复 | 缺 cancel、跨进程 lease/heartbeat、自动扫描与 Outbox |
+| OPS-02 | IMPLEMENTED | Run 固化执行额度与用量；`agent_executions/tool_calls` 保存输入指纹、幂等键、尝试、结果和错误；Graph checkpoint 与业务 Run 以 `state_version` 对齐 | 费用是公开价格估算而非账单；Agent SDK 内部半途工具调用仍以整个 Agent 节点为恢复单位 |
 | OPS-03 | IMPLEMENTED | Tool Policy 声明 timeout/attempt/backoff/circuit；异步 Provider 调用执行有限重试、按来源熔断和并发隔离 | 同步进程内工具尚未模拟外部超时；缺 schema drift 和多进程共享熔断 |
 | OPS-04 | IMPLEMENTED | Trace 关联 actor、工具、重试、预算和状态版本；独立 state_events 保存迁移原因；trajectory grader 检查禁止/遗漏/重复工具、候选依据和停止条件；DeepSeek 3 次 live 轨迹通过 | 缺 prompt/model/policy/ranking 完整版本指纹和更大 live 样本 |
 | OPS-05 | IMPLEMENTED | 固定 Fixture 两次运行投影一致 | 缺模型、工具、clock 和版本指纹 cassette |
@@ -68,7 +68,7 @@
 | 网页 Prompt Injection | VERIFIED | Fixture 中包含注入文本，不能触发写入 |
 | 多来源失败与草稿超时恢复 | IMPLEMENTED | 仅单来源 429/timeout 部分成功 |
 | 价格变化与旧卡片重放 | VERIFIED | `quote_price_changed` 场景和自动化测试覆盖变化、二次确认、旧 Token 拒绝 |
-| 47 个版本化场景 | VERIFIED | Agent Runtime 覆盖工具与轨迹；数据库覆盖回写、租户隔离与乐观锁；长期记忆覆盖个人/团队边界、生命周期和候选确认安全；制度知识覆盖引用、时态/租户过滤、版本冲突、混合检索标注和 Engine grounding |
+| 51 个版本化场景 | VERIFIED | Agent Runtime 覆盖工具与轨迹；数据库覆盖回写、租户隔离与乐观锁；长期记忆覆盖个人/团队边界、生命周期和候选确认安全；制度知识覆盖引用、时态/租户过滤、版本冲突、混合检索标注和 Engine grounding；工作流覆盖 interrupt/resume、Runtime 重建、pending resume、kill/restart 单写门禁 |
 | 制度知识检索与引用 | IMPLEMENTED | 治理角色上传/发布 PDF/DOCX/TXT/Markdown，扫描 PDF 可接 OCR；PostgreSQL GIN FTS + pgvector HNSW，RRF、向量降级、模型回填和 Policy 版本校验 | 真实企业语料、逐结论 citation grader、复杂版式抽检和管理 UI 待完成 |
 | 完整 trajectory cassette | PLANNED | 当前只比较确定性结果投影 |
 | CI veto gate | VERIFIED | 独立 workflow 执行 Ruff、pytest、scenario eval 和前端构建，并上传评测报告 |
@@ -78,6 +78,6 @@
 
 当前版本可以描述为：
 
-> 确定性核心闭环通过 47 个 fixture 场景；双 Agent Runtime 已通过 fixture 测试，能够证明路由、并行、权限、预算、陈旧结果拒绝、回退和完整草稿闭环。双 Agent DeepSeek 12-case × 1 smoke 已完成；历史单总控报告只作为旧架构记录。
+> 确定性核心闭环通过 51 个 fixture 场景；LangGraph 作为默认工作流 Runtime，在人工等待和关键执行节点持久化和恢复；双 Agent Runtime 已通过 fixture 测试，能够证明路由、并行、权限、预算、陈旧结果拒绝、回退和完整草稿闭环。双 Agent DeepSeek 12-case × 1 smoke 已完成；历史单总控报告只作为旧架构记录。
 
-长期记忆授权 CRUD、Agent Context、结构化 Registry/Consent、候选确认和制度文件/混合检索纵向切片均已完成；后端回归 117/117，确定性评测 47/47，12 条开发/留出检索 fixture 的 Hit@3/MRR/无答案准确率均为 1.0，双 Agent DeepSeek 12-case × 1 smoke 为 12/12。下一步实现持久化 execution/checkpoint 与恢复；发布前补齐双 Agent ×3 稳定性矩阵。
+长期记忆授权 CRUD、Agent Context、结构化 Registry/Consent、候选确认和制度文件/混合检索纵向切片均已完成；后端回归 126/126，确定性评测 51/51，12 条开发/留出检索 fixture 的 Hit@3/MRR/无答案准确率均为 1.0，双 Agent DeepSeek 12-case × 1 smoke 为 12/12。关键 Agent/Tool 节点与 `resume_pending` 已完成；下一步补 cancel、租约、自动恢复扫描与 cassette，发布前补齐双 Agent ×3 稳定性矩阵。

@@ -1,6 +1,6 @@
 # ProcurePilot：企业采购决策与审批 Agent
 
-> 当前状态：运行时已收敛为 Requirement Agent 和 Sourcing Agent 两个模型角色。Agent Context、结构化记忆、记忆候选确认，以及制度 RAG 的文件解析、FTS + pgvector + RRF 混合检索均已完成。当前 117 个后端测试、47 个确定性评测通过；DeepSeek 双 Agent 12/12 smoke 已通过，×3 稳定性矩阵待运行。
+> 当前状态：LangGraph 已成为默认工作流 Runtime，负责多轮路由、interrupt 和 checkpoint；Requirement/Sourcing 两个模型角色、现有 Harness 与确定性领域服务继续负责各自边界。Agent/Tool 执行日志、细粒度写前节点和 `resume_pending` 已接入。当前 126 个后端测试、51 个确定性评测通过；DeepSeek 双 Agent 12/12 smoke 已通过，×3 稳定性矩阵待运行。
 
 ProcurePilot 是一个面向企业员工、采购专员和审批人的 AI 采购助手。它将自然语言采购需求转化为结构化申请，主动补齐关键约束，并行查询多个合规来源，完成同款归一、到手成本计算、预算与制度校验、供应商风险检查，最终在人工确认后生成采购申请草稿。
 
@@ -21,6 +21,8 @@ ProcurePilot 是一个面向企业员工、采购专员和审批人的 AI 采购
 - [里程碑与交付计划](docs/10-delivery-plan.md)
 - [下一步实施规划与技术方案](docs/11-next-step-plan-and-technical-design.md)
 - [记忆、上下文与知识检索模块技术设计](docs/12-memory-context-technical-design.md)
+- [LangGraph 工作流与 Harness 边界](docs/13-langgraph-workflow-technical-design.md)
+- [多级费用预算与统一工具网关](docs/14-multilevel-budget-and-tool-gateway.md)
 
 ## 快速开始
 
@@ -35,6 +37,8 @@ make dev
 打开 `http://127.0.0.1:5173`。`make dev` 会同时启动 FastAPI 与 Vite；也可以使用 `docker compose up --build`。
 
 默认 `PROCURE_AGENT_MODE=deterministic`，用于离线演示和 CI。
+
+工作流默认使用 `PROCURE_WORKFLOW_BACKEND=langgraph`。当 Repository 为 JSON 时，`PROCURE_WORKFLOW_CHECKPOINT_BACKEND=auto` 自动选择内存 checkpoint；当 Repository 为 PostgreSQL 时自动选择 `AsyncPostgresSaver`。生产/Compose 推荐显式设置为 `postgres`，并保持 `LANGGRAPH_STRICT_MSGPACK=true`。如果需要快速回滚，可临时设置 `PROCURE_WORKFLOW_BACKEND=legacy`；此模式不提供 LangGraph interrupt/checkpoint。运行中的节点可通过 `GET /api/runs/{run_id}/workflow` 查看；非 interrupt 节点因 Worker 退出而遗留时，可由授权调用 `POST /api/runs/{run_id}/workflow/resume`；执行日志通过 `GET /api/runs/{run_id}/executions` 查询。
 
 双 Agent fixture 拓扑可用下面的配置离线运行：
 
@@ -75,7 +79,7 @@ uv run procure-knowledge-backfill --tenant-id demo_cn --batch-size 64
 
 embedding 使用独立密钥，不复用 Agent 模型密钥；`--max-batches` 可限制单次作业并从剩余旧模型 chunk 继续。文件上传接口是 `POST /internal/knowledge/files`，只允许知识治理角色。
 
-当前双 Agent 代码基线为 117/117 后端测试通过，确定性评测为 47/47。制度检索集包含 5 条开发标签和 7 条独立留出标签；这仍是小型 fixture 门禁。双 Agent DeepSeek 12-case × 1 smoke 已 12/12 通过；此前五 Agent 和 direct-tools 报告只保留为历史记录，不能作为新拓扑发布证据。发布前仍需完成 12-case × 3 稳定性矩阵。
+当前双 Agent + LangGraph 代码基线为 139 项后端测试通过（包含 1 项真实 Redis 集成测试），确定性评测为 51/51。制度检索集包含 5 条开发标签和 7 条独立留出标签；这仍是小型 fixture 门禁。双 Agent DeepSeek 12-case × 1 smoke 已 12/12 通过；此前五 Agent 和 direct-tools 报告只保留为历史记录，不能作为新拓扑发布证据。发布前仍需完成 12-case × 3 稳定性矩阵。
 
 Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixture-session-cn-employee-001`。它用于证明客户端不能直接指定 tenant、用户或成本中心，不代表生产 SSO。
 
@@ -121,7 +125,9 @@ Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixtur
 - Fixture 比价：三个逻辑 provider 返回不一致的原始表达，经确定性管线归一为 Product、Variant、Offer；关键冲突由服务端 veto，低置信度报价不进入排名，金额使用 Decimal。
 - 企业决策：预算、采购制度、供应商状态和审批路径由确定性领域服务判断。
 - 最小 Harness：合法状态迁移与连续版本、按 Run 保存的执行额度/用量、Provider 超时/有限重试/独立熔断/并发隔离、版本化 Tool Registry、HITL、签名 Action Token 和幂等草稿。
-- Agent 拓扑：Provider 无关的 Runtime 只执行 Requirement Agent 或 Sourcing Agent；两者使用独立 SDK 实例、输入投影和静态工具白名单。Application Runtime 不是模型，Policy/Verification 是确定性服务。
+- 多级费用预算：Redis 原子检查平台日/月、租户月、用户日和 Provider 额度；PostgreSQL 保存不可变流水与 Outbox，Redis 数据丢失时从数据库重建；模型与工具只能经统一 Gateway 预留、调用和结算。
+- Agent 拓扑：LangGraph StateGraph 是确定性管理者，通过条件边只执行 Requirement Agent 或 Sourcing Agent；两者使用独立 SDK 实例、输入投影和静态工具白名单。它不是 Manager LLM，Policy/Verification 仍是确定性服务。
+- Durable Workflow 首片：`WAITING_USER` 和 `WAITING_CONFIRMATION` 使用真实 LangGraph `interrupt`；API 使用 tenant-scoped `thread_id` 恢复，恢复前检查业务 `state_version`。JSON/测试模式使用内存 checkpointer，PostgreSQL 模式使用 `AsyncPostgresSaver`，并保留 `legacy` 回滚开关。
 - Agent 工具闭环：完整多轮消息进入 Planner；模型不能传入价格、预算或虚构 Offer，已查询目录结果会被 Engine 复用；结构化候选只有通过服务端证据检查后才能改变综合推荐。独立 live runner 已记录真实模型的轨迹、token、延迟和估算费用。
 - PostgreSQL 数据库：SQLAlchemy Repository 与 Alembic migration 已接入；Run 使用 JSONB 保存完整快照，消息和 Trace 同时写入可查询表；租户条件、乐观锁和草稿唯一键已在真实 PostgreSQL 17 上验证。
 - 长期记忆第一片：Profile/Team/Episodic/Semantic 四种类型已落库；创建必须显式同意，个人/团队读取边界和创建者写权限由 Repository 强制，支持版本化修改、软删除和全生命周期审计。
@@ -139,7 +145,7 @@ Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixtur
 - 扩大到真实企业制度语料，补复杂合并表格、多栏 PDF 与 OCR 人工抽检；
 - 补 Recall@K、citation precision/recall、cross-encoder rerank 与真实语义模型对比；
 - 更大别名库、hybrid retrieval、pairwise matcher 与真实 Provider 标注集上的召回/置信度校准；
-- 真实模型扩大样本、费用账单校对、跨进程熔断、checkpoint 和 cassette replay；
+- 真实模型扩大样本、费用账单校对、Agent SDK 内部单次工具调用中断恢复、跨进程租约与 cassette replay；
 - 60/180 场景分层评测、真实模型成本与延迟基线；
 - 经过 holdout、人工审批、canary 和 rollback 的受控自进化。
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from contextvars import ContextVar
 from dataclasses import dataclass, field
@@ -19,6 +20,7 @@ from procure_pilot.agents.tools import (
     AgentRuntimeContext,
     build_function_tools,
 )
+from procure_pilot.harness.runtime import ACTIVE_AGENT_EXECUTION_ID
 
 
 class ProviderAgentResult(BaseModel):
@@ -70,6 +72,9 @@ class _CaptureState:
     requests: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    cost_micro_usd: int = 0
+    context: AgentRuntimeContext | None = None
+    agent_execution_id: str | None = None
 
 
 AGENT_INSTRUCTIONS: dict[AgentKind, str] = {
@@ -140,13 +145,41 @@ class OpenAICompatibleTwoAgentAdapter:
         class CapturingModel(model_base):
             def __init__(inner, *, model: str) -> None:
                 super().__init__(model=model, openai_client=client)
+                inner.model_name = model
                 inner.capture: ContextVar[_CaptureState | None] = ContextVar(
                     f"procure_capture_{id(inner)}", default=None
                 )
 
             async def get_response(inner, *args: Any, **kwargs: Any):
-                response = await super().get_response(*args, **kwargs)
                 capture = inner.capture.get()
+                parent_call = super().get_response
+
+                async def operation():
+                    return await parent_call(*args, **kwargs)
+
+                if capture is not None and capture.context is not None and capture.context.model_gateway:
+                    fingerprint = hashlib.sha256(
+                        repr((args, kwargs)).encode("utf-8")
+                    ).hexdigest()[:32]
+                    response, cost_micro_usd = await capture.context.model_gateway.invoke(
+                        tenant_id=capture.context.run.tenant_id,
+                        user_id=capture.context.run.user_id,
+                        run_id=capture.context.run.run_id,
+                        agent_execution_id=capture.agent_execution_id,
+                        provider=provider,
+                        model=inner.model_name,
+                        request_index=capture.requests + 1,
+                        request_fingerprint=fingerprint,
+                        operation=operation,
+                        usage_reader=lambda value: (
+                            int(value.usage.input_tokens),
+                            int(value.usage.output_tokens),
+                            getattr(value, "response_id", None),
+                        ),
+                    )
+                    capture.cost_micro_usd += cost_micro_usd
+                else:
+                    response = await operation()
                 if capture is not None:
                     capture.output = [
                         item.model_dump(mode="json") if hasattr(item, "model_dump") else item
@@ -236,7 +269,10 @@ class OpenAICompatibleTwoAgentAdapter:
         max_turns: int,
     ) -> AdapterCall[ProviderAgentResult]:
         model = self._models[kind]
-        capture = _CaptureState()
+        capture = _CaptureState(
+            context=context,
+            agent_execution_id=ACTIVE_AGENT_EXECUTION_ID.get(),
+        )
         token = model.capture.set(capture)
         execution_key = f"{kind.value}:{phase}"
         self.last_execution = execution_key
@@ -283,6 +319,7 @@ class OpenAICompatibleTwoAgentAdapter:
                     requests=max(1, requests),
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
+                    cost_micro_usd=capture.cost_micro_usd,
                     output_repaired=repaired,
                 ),
             )
