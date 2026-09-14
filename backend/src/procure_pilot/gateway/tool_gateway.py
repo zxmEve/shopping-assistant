@@ -41,7 +41,7 @@ ArgsT = TypeVar("ArgsT", bound=BaseModel)
 ResultT = TypeVar("ResultT")
 
 DEFAULT_AGENT_TOOL_NAMES: dict[str, tuple[str, ...]] = {
-    "REQUIREMENT": ("inspect_procurement_requirement",),
+    "REQUIREMENT": (),
     "SOURCING": ("search_catalog",),
 }
 
@@ -560,7 +560,7 @@ def build_default_tool_registry(
             risk=RiskLevel.READ,
             allowed_roles=employee_roles,
             allowed_agents=agents_for("inspect_procurement_requirement"),
-            exposure="AGENT",
+            exposure="INTERNAL",
         ),
         GatewayToolDefinition(
             name="get_budget",

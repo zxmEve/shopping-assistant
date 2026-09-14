@@ -15,6 +15,7 @@ from procure_pilot.domain.models import (
     ProcurementRun,
     ToolBudgetPool,
 )
+from procure_pilot.domain.requirements import RequirementSpec
 
 if TYPE_CHECKING:
     from procure_pilot.fixtures.catalog import FixtureCatalogAdapter
@@ -87,6 +88,7 @@ class AgentRuntimeContext:
     budget_lookup_started: bool = False
     catalog_results: dict[str, CatalogSearchResult] = field(default_factory=dict)
     catalog_requested_providers: set[str] = field(default_factory=set)
+    catalog_failures: dict[str, str] = field(default_factory=dict)
     offers: dict[tuple[str, str], Offer] = field(default_factory=dict)
     cost_checked_offers: set[tuple[str, str]] = field(default_factory=set)
     cost_requested_offers: set[tuple[str, str]] = field(default_factory=set)
@@ -94,6 +96,8 @@ class AgentRuntimeContext:
     policy_evaluation_started: bool = False
     proposed_candidates: list[AgentCandidateProposal] = field(default_factory=list)
     decision_rationale: str = ""
+    requirement_spec: RequirementSpec | None = None
+    sourcing_phase: str = "RETRIEVE"
 
     def require_gateway(self) -> ToolGateway:
         if self.tool_gateway is None:
@@ -219,7 +223,10 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
         return not wrapper.context.budget_lookup_started
 
     def catalog_available(wrapper: RunContextWrapper[AgentRuntimeContext], _agent: Any) -> bool:
-        return len(wrapper.context.catalog_requested_providers) < 3
+        return (
+            wrapper.context.sourcing_phase == "RETRIEVE"
+            and len(wrapper.context.catalog_requested_providers) < 3
+        )
 
     def cost_available(wrapper: RunContextWrapper[AgentRuntimeContext], _agent: Any) -> bool:
         return len(wrapper.context.cost_requested_offers) < 3
@@ -314,11 +321,17 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
         if provider in context.catalog_requested_providers:
             raise ValueError(f"Catalog provider {provider} was already requested.")
         context.catalog_requested_providers.add(provider)
-        result = await context.require_gateway().invoke(
-            tool_name="search_catalog",
-            arguments={"provider": provider},
-            context=context.gateway_context(budget_pool=ToolBudgetPool.AGENT_READ),
-        )
+        try:
+            result = await context.require_gateway().invoke(
+                tool_name="search_catalog",
+                arguments={"provider": provider},
+                context=context.gateway_context(budget_pool=ToolBudgetPool.AGENT_READ),
+            )
+        except Exception as exc:
+            context.catalog_failures[provider] = str(
+                getattr(exc, "code", type(exc).__name__)
+            )
+            raise
         context.remember_catalog_result(result)
         summaries = [
             AgentOfferSummary(

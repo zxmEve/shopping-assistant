@@ -23,6 +23,9 @@ ProcurePilot 是一个面向企业员工、采购专员和审批人的 AI 采购
 - [记忆、上下文与知识检索模块技术设计](docs/12-memory-context-technical-design.md)
 - [LangGraph 工作流与 Harness 边界](docs/13-langgraph-workflow-technical-design.md)
 - [多级费用预算与统一工具网关](docs/14-multilevel-budget-and-tool-gateway.md)
+- [Requirement Agent 与版本化 RequirementSpec 技术设计](docs/15-requirement-agent-boundary-refactor.md)
+- [Sourcing Agent 合规候选排序链路技术设计](docs/16-sourcing-decision-pipeline-refactor.md)
+- [单 Agent、双 Agent 与确定性基线消融评测技术设计](docs/17-agent-topology-ablation-evaluation.md)
 
 ## 快速开始
 
@@ -58,6 +61,7 @@ make dev
 # DeepSeek：再设置 PROCURE_MODEL_PROVIDER=deepseek、
 # PROCURE_OPENAI_BASE_URL=https://api.deepseek.com 和对应模型名；可分别配置
 # PROCURE_REQUIREMENT_MODEL、PROCURE_SOURCING_MODEL
+# 排序结果相对确定性基线的最大绝对效用损失：PROCURE_RANKING_MAX_UTILITY_REGRET=0.05
 make dev
 ```
 

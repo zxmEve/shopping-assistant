@@ -34,9 +34,13 @@ from procure_pilot.domain.models import (
     RevalidationChange,
     RunResponse,
     RunState,
+    SourcingRankingDecision,
     ToolBudgetPool,
     TraceEvent,
+    ValidatedCandidateSet,
+    ValidatedCandidateView,
 )
+from procure_pilot.domain.requirements import RequirementSpec, RequirementStatus
 from procure_pilot.fixtures.catalog import PROVIDERS, FixtureCatalogAdapter, ProviderError
 from procure_pilot.fixtures.enterprise import FixtureEnterpriseGateway
 from procure_pilot.gateway.model_gateway import ModelGateway
@@ -73,6 +77,7 @@ from procure_pilot.services.context import (
 from procure_pilot.services.costing import calculate_landed_cost
 from procure_pilot.services.knowledge import PolicyKnowledgeService
 from procure_pilot.services.memory_registry import MemoryRegistry
+from procure_pilot.services.requirement_validation import RequirementSpecService
 
 QUESTION_LABELS = {
     "quantity": "需要采购多少台？",
@@ -80,27 +85,29 @@ QUESTION_LABELS = {
     "budget_tax_included": "单台预算是含税还是未税？",
     "delivery_city": "具体交付城市是哪里？",
     "minimum_ram_gb": "最低内存要求是多少？开发机建议明确为 32GB 或 64GB。",
+    "minimum_storage_gb": "最低存储容量要求是多少？",
 }
 
 QUESTION_INFORMATION_VALUE = {
     "unit_budget": 1.00,
     "quantity": 0.95,
     "minimum_ram_gb": 0.90,
+    "minimum_storage_gb": 0.88,
     "delivery_city": 0.85,
     "budget_tax_included": 0.80,
 }
 
 MAX_CLARIFICATION_ROUNDS = 3
-
-
 class AgentStageResult(BaseModel):
     execution_id: str
     agent_kind: Literal["REQUIREMENT", "SOURCING"]
     proposed_candidates: list[AgentCandidateProposal] = Field(default_factory=list)
     decision_rationale: str = ""
     catalog_results: dict[str, CatalogSearchResult] = Field(default_factory=dict)
+    catalog_failures: dict[str, str] = Field(default_factory=dict)
     execution_usage: ExecutionUsage | None = None
     trace_events: list[TraceEvent] = Field(default_factory=list)
+    requirement_spec: RequirementSpec | None = None
 
 
 class ConfirmationStageResult(BaseModel):
@@ -137,6 +144,7 @@ class ProcurementEngine:
         provider_costs_micro_usd: dict[str, int] | None = None,
         model_max_reservation_micro_usd: int = 100_000,
         budget_reservation_ttl_seconds: int = 300,
+        max_agent_utility_regret: float = 0.05,
     ) -> None:
         self.catalog = catalog
         self.enterprise = enterprise
@@ -181,6 +189,10 @@ class ProcurementEngine:
             memory_registry=memory_registry,
         )
         self._run_locks: dict[str, asyncio.Lock] = {}
+        self.requirement_specs = RequirementSpecService()
+        if not 0 <= max_agent_utility_regret <= 1:
+            raise ValueError("max_agent_utility_regret must be between 0 and 1")
+        self.max_agent_utility_regret = max_agent_utility_regret
 
     def initialize_workflow_run(
         self,
@@ -254,6 +266,17 @@ class ProcurementEngine:
         return run
 
     def required_agent_kind(self, run: ProcurementRun) -> AgentKind:
+        if getattr(self.planner, "requires_requirement_stage", False):
+            latest_user = next(
+                (item for item in reversed(run.messages) if item.role == "user"), None
+            )
+            if latest_user is None or run.requirement_spec is None:
+                return AgentKind.REQUIREMENT
+            if run.requirement_spec.source_message_id != latest_user.message_id:
+                return AgentKind.REQUIREMENT
+            if run.requirement_spec.status == RequirementStatus.READY_FOR_SOURCING:
+                return AgentKind.SOURCING
+            return AgentKind.REQUIREMENT
         clarification = self._clarification(run.requirement, run.clarification_rounds)
         return AgentKind.SOURCING if clarification.ready_for_sourcing else AgentKind.REQUIREMENT
 
@@ -320,15 +343,17 @@ class ProcurementEngine:
         )
         try:
             trace_start = len(run.trace)
-            context = await self._plan(run)
+            context = await self._plan(run, expected_kind=expected_kind)
             result = AgentStageResult(
                 execution_id=claimed.execution_id,
                 agent_kind=expected_kind.value,
                 proposed_candidates=context.proposed_candidates,
                 decision_rationale=context.decision_rationale,
                 catalog_results=context.catalog_results,
+                catalog_failures=context.catalog_failures,
                 execution_usage=run.execution_usage.model_copy(deep=True),
                 trace_events=[event.model_copy(deep=True) for event in run.trace[trace_start:]],
+                requirement_spec=context.requirement_spec,
             )
             self.execution_repository.complete_agent(
                 claimed.execution_id,
@@ -369,10 +394,18 @@ class ProcurementEngine:
             context_assembler=self.context_assembler,
             proposed_candidates=agent_stage.proposed_candidates,
             decision_rationale=agent_stage.decision_rationale,
+            catalog_failures=agent_stage.catalog_failures,
         )
         for result in agent_stage.catalog_results.values():
             context.remember_catalog_result(result)
         try:
+            if (
+                agent_stage.agent_kind == AgentKind.REQUIREMENT.value
+                and agent_stage.requirement_spec is not None
+            ):
+                response = self._complete_requirement_stage(run, agent_stage)
+                self.repository.save(run)
+                return response
             response = await self._advance(
                 run,
                 scenario=run.scenario,
@@ -382,6 +415,68 @@ class ProcurementEngine:
             response = self._budget_stopped(run, exc)
         self.repository.save(run)
         return response
+
+    def _complete_requirement_stage(
+        self, run: ProcurementRun, agent_stage: AgentStageResult
+    ) -> RunResponse:
+        proposed = agent_stage.requirement_spec
+        if proposed is None:
+            raise ValueError("Requirement Agent did not return RequirementSpec")
+        if proposed.run_id != run.run_id:
+            raise ValueError("RequirementSpec belongs to a different Run")
+        latest = next((item for item in reversed(run.messages) if item.role == "user"), None)
+        if latest is None:
+            raise ValueError("RequirementSpec has no source user message")
+        if (
+            run.requirement_spec
+            and run.requirement_spec.spec_id == proposed.spec_id
+            and run.requirement_spec.version == proposed.version
+        ):
+            validated = run.requirement_spec
+        else:
+            validated = self.requirement_specs.validate(
+                proposed,
+                message_id=latest.message_id,
+                text=latest.content,
+                base=run.requirement_spec,
+            )
+            baseline = self.enterprise.policy["developer_laptop_baseline"]
+            validated = self.requirement_specs.apply_authorized_defaults(
+                validated,
+                minimum_ram_gb=int(baseline["minimum_ram_gb"]),
+                minimum_storage_gb=1024,
+            )
+            run.requirement_spec = validated
+            run.requirement_spec_history.append(validated.model_copy(deep=True))
+            run.requirement = self.requirement_specs.to_procurement_requirement(validated)
+        self.harness.trace(
+            run,
+            actor="Requirement Validation Service",
+            kind="SERVICE",
+            name="requirement_spec.validated",
+            detail={
+                "spec_id": validated.spec_id,
+                "base_version": validated.base_version,
+                "version": validated.version,
+                "status": validated.status,
+                "missing_fields": [item.field for item in validated.missing_fields],
+                "conflicts": [item.model_dump(mode="json") for item in validated.conflicts],
+                "delta_operations": len(validated.delta.operations),
+            },
+        )
+        if validated.status == RequirementStatus.READY_FOR_SOURCING:
+            return RunResponse(run=run, assistant_message="需求已校验，正在进入寻源。")
+        if run.clarification_rounds >= MAX_CLARIFICATION_ROUNDS:
+            self.harness.transition(run, RunState.FAILED, reason="clarification round limit reached")
+            run.error = "达到最大追问轮数，需求仍存在缺失或冲突。"
+            run.messages.append(Message(role="assistant", content=run.error))
+            return RunResponse(run=run, assistant_message=run.error)
+        run.clarification_rounds += 1
+        self.harness.transition(run, RunState.WAITING_USER, reason="RequirementSpec needs clarification")
+        question = validated.next_question.text if validated.next_question else "请补充必要采购条件。"
+        message = f"为了避免错配，我还需要确认：{question}"
+        run.messages.append(Message(role="assistant", content=message))
+        return RunResponse(run=run, assistant_message=message)
 
     def prepare_confirmation_node(
         self,
@@ -769,12 +864,31 @@ class ProcurementEngine:
             self._merge_requirement(run.requirement, message)
             if "按公司标准" in message or "按团队标准" in message:
                 self._apply_authorized_defaults(run.requirement)
-            agent_context = await self._plan(run)
-            response = await self._advance(
-                run,
-                scenario=run.scenario,
-                agent_context=agent_context,
-            )
+            if getattr(self.planner, "requires_requirement_stage", False):
+                requirement_context = await self._plan(run, expected_kind=AgentKind.REQUIREMENT)
+                stage = AgentStageResult(
+                    execution_id="legacy-requirement",
+                    agent_kind=AgentKind.REQUIREMENT.value,
+                    requirement_spec=requirement_context.requirement_spec,
+                )
+                if requirement_context.requirement_spec is None:
+                    response = await self._advance(
+                        run, scenario=run.scenario, agent_context=requirement_context
+                    )
+                else:
+                    response = self._complete_requirement_stage(run, stage)
+                    if run.state == RunState.COLLECTING:
+                        agent_context = await self._plan(run, expected_kind=AgentKind.SOURCING)
+                        response = await self._advance(
+                            run, scenario=run.scenario, agent_context=agent_context
+                        )
+            else:
+                agent_context = await self._plan(run)
+                response = await self._advance(
+                    run,
+                    scenario=run.scenario,
+                    agent_context=agent_context,
+                )
         except HarnessBudgetExceeded as exc:
             response = self._budget_stopped(run, exc)
         self.repository.save(run)
@@ -806,12 +920,31 @@ class ProcurementEngine:
             self._merge_requirement(run.requirement, message)
             if "按公司标准" in message or "按团队标准" in message:
                 self._apply_authorized_defaults(run.requirement)
-            agent_context = await self._plan(run)
-            response = await self._advance(
-                run,
-                scenario=run.scenario,
-                agent_context=agent_context,
-            )
+            if getattr(self.planner, "requires_requirement_stage", False):
+                requirement_context = await self._plan(run, expected_kind=AgentKind.REQUIREMENT)
+                stage = AgentStageResult(
+                    execution_id="legacy-requirement",
+                    agent_kind=AgentKind.REQUIREMENT.value,
+                    requirement_spec=requirement_context.requirement_spec,
+                )
+                if requirement_context.requirement_spec is None:
+                    response = await self._advance(
+                        run, scenario=run.scenario, agent_context=requirement_context
+                    )
+                else:
+                    response = self._complete_requirement_stage(run, stage)
+                    if run.state == RunState.COLLECTING:
+                        agent_context = await self._plan(run, expected_kind=AgentKind.SOURCING)
+                        response = await self._advance(
+                            run, scenario=run.scenario, agent_context=agent_context
+                        )
+            else:
+                agent_context = await self._plan(run)
+                response = await self._advance(
+                    run,
+                    scenario=run.scenario,
+                    agent_context=agent_context,
+                )
         except HarnessBudgetExceeded as exc:
             response = self._budget_stopped(run, exc)
         self.repository.save(run)
@@ -971,9 +1104,15 @@ class ProcurementEngine:
             reason="minimum requirement is complete",
         )
         requirement = run.requirement
-        assert requirement.quantity is not None
-        assert requirement.minimum_ram_gb is not None
-        assert requirement.minimum_storage_gb is not None
+        safety_missing = [
+            name
+            for name in ("quantity", "minimum_ram_gb", "minimum_storage_gb")
+            if getattr(requirement, name) is None
+        ]
+        if safety_missing:
+            self.harness.transition(run, RunState.FAILED, reason="sourcing precondition failed")
+            run.error = "寻源前置校验失败，仍缺少：" + "、".join(safety_missing)
+            return RunResponse(run=run, assistant_message=run.error)
         employee = self.enterprise.identity(run.tenant_id, run.user_id)
         try:
             policy_knowledge_refs = self._policy_knowledge_refs(run)
@@ -994,6 +1133,7 @@ class ProcurementEngine:
             run.error = "制度条款缺失或版本不一致，需要人工复核制度知识"
             return RunResponse(run=run, assistant_message=run.error)
         cached_results = agent_context.catalog_results if agent_context else {}
+        cached_failures = agent_context.catalog_failures if agent_context else {}
         tasks = {
             provider: asyncio.create_task(
                 self._search_catalog_with_journal(
@@ -1004,7 +1144,7 @@ class ProcurementEngine:
                 )
             )
             for provider in PROVIDERS
-            if provider not in cached_results
+            if provider not in cached_results and provider not in cached_failures
         }
         offers: list[Offer] = []
         normalization_issues = []
@@ -1012,6 +1152,14 @@ class ProcurementEngine:
         executed_results = await asyncio.gather(*tasks.values(), return_exceptions=True)
         provider_results = {
             **cached_results,
+            **{
+                provider: ProviderError(
+                    provider,
+                    code,
+                    "Provider attempt already failed during Agent retrieval",
+                )
+                for provider, code in cached_failures.items()
+            },
             **dict(zip(tasks, executed_results, strict=True)),
         }
         for provider in PROVIDERS:
@@ -1147,33 +1295,124 @@ class ProcurementEngine:
         lowest = min(candidates, key=lambda item: item.cost.unconditional_total.amount)
         fastest = min(candidates, key=lambda item: (item.offer.delivery_days, -item.score))
         best = max(candidates, key=lambda item: item.score)
+        deterministic_best = best
         selection_source = "deterministic_score"
         selection_rationale = "按固定成本、交付、供应商状态和保修权重选择"
-        if agent_context and agent_context.proposed_candidates:
+        selected_regret = 0.0
+        candidate_projection = [
+            ValidatedCandidateView(
+                provider=item.offer.provider,
+                offer_id=item.offer.offer_id,
+                brand=item.offer.product.brand,
+                model=item.offer.product.model,
+                landed_total=item.cost.unconditional_total,
+                delivery_days=item.offer.delivery_days,
+                policy_decision=item.policy_decision,
+                approval_route=item.approval_route,
+                evidence_refs=item.evidence_refs,
+                utility_score=item.score,
+            )
+            for item in candidates
+        ]
+        candidate_set_hash = self._fingerprint(
+            {"candidates": [item.model_dump(mode="json") for item in candidate_projection]}
+        )
+        validated_set = ValidatedCandidateSet(
+            run_id=run.run_id,
+            candidate_set_hash=candidate_set_hash,
+            requirement_spec_id=(run.requirement_spec.spec_id if run.requirement_spec else None),
+            requirement_spec_hash=(
+                self._fingerprint(run.requirement_spec.model_dump(mode="json"))
+                if run.requirement_spec
+                else None
+            ),
+            requirement_version=requirement.version,
+            policy_version=str(self.enterprise.policy["version"]),
+            candidates=candidate_projection,
+        )
+        run.validated_candidate_set = validated_set
+        self.harness.trace(
+            run,
+            actor="Candidate Validation Service",
+            kind="SERVICE",
+            name="validated_candidate_set.created",
+            detail={
+                "requirement_spec_id": validated_set.requirement_spec_id,
+                "requirement_spec_hash": validated_set.requirement_spec_hash,
+                "requirement_version": validated_set.requirement_version,
+                "policy_version": validated_set.policy_version,
+                "candidate_count": len(validated_set.candidates),
+                "candidate_set_hash": validated_set.candidate_set_hash,
+            },
+        )
+        ranking_proposals = list(agent_context.proposed_candidates) if agent_context else []
+        if (
+            agent_context
+            and run.requirement_spec is not None
+            and not getattr(self.planner, "last_error", None)
+            and hasattr(self.planner, "rank_candidates")
+        ):
+            try:
+                ranking = await self._rank_validated_candidates(
+                    run, validated_set=validated_set, agent_context=agent_context
+                )
+                if ranking is not None:
+                    run.sourcing_ranking = ranking
+                    ranking_proposals = [
+                        AgentCandidateProposal(
+                            provider=ranking.provider,
+                            offer_id=ranking.offer_id,
+                            evidence_refs=ranking.evidence_refs,
+                        )
+                    ]
+                    agent_context.decision_rationale = ranking.rationale
+            except HarnessBudgetExceeded:
+                raise
+            except Exception as exc:
+                ranking_proposals = []
+                self.harness.trace(
+                    run,
+                    actor="Application Runtime",
+                    kind="AGENT",
+                    name="sourcing.rank_degraded",
+                    detail={"error": f"{type(exc).__name__}: {exc}"},
+                    status="DEGRADED",
+                )
+        if agent_context and ranking_proposals:
             candidate_by_key = {
                 (candidate.offer.provider, candidate.offer.offer_id): candidate
                 for candidate in candidates
             }
-            for proposal in agent_context.proposed_candidates:
+            for proposal in ranking_proposals:
                 proposal_key = (proposal.provider, proposal.offer_id)
                 proposed = candidate_by_key.get(proposal_key)
                 proposal_evidence = set(proposal.evidence_refs)
-                catalog_evidence = (
-                    {
-                        *proposed.offer.match_decision.evidence_refs,
-                        proposed.offer.evidence.evidence_id,
-                    }
-                    if proposed
-                    else set()
+                validated_evidence = set(proposed.evidence_refs) if proposed else set()
+                regret = deterministic_best.score - proposed.score if proposed else 1.0
+                ranking_is_bound = bool(
+                    run.sourcing_ranking
+                    and run.sourcing_ranking.candidate_set_hash
+                    == validated_set.candidate_set_hash
+                    and run.sourcing_ranking.requirement_version
+                    == validated_set.requirement_version
+                    and run.sourcing_ranking.requirement_spec_hash
+                    == validated_set.requirement_spec_hash
+                    and (run.sourcing_ranking.provider, run.sourcing_ranking.offer_id)
+                    == proposal_key
                 )
                 evidence_is_valid = bool(
                     proposed
-                    and proposal_key in agent_context.offers
+                    and (ranking_is_bound or proposal_key in agent_context.offers)
                     and proposed.offer.evidence.evidence_id in proposal_evidence
-                    and proposal_evidence.issubset(catalog_evidence)
+                    and proposal_evidence.issubset(validated_evidence)
                 )
-                if proposed and evidence_is_valid:
+                if (
+                    proposed
+                    and evidence_is_valid
+                    and regret <= self.max_agent_utility_regret
+                ):
                     best = proposed
+                    selected_regret = max(0.0, regret)
                     selection_source = "agent_validated"
                     selection_rationale = agent_context.decision_rationale
                     self.harness.trace(
@@ -1185,6 +1424,23 @@ class ProcurementEngine:
                             "provider": proposal.provider,
                             "offer_id": proposal.offer_id,
                             "evidence_refs": proposal.evidence_refs,
+                            "utility_regret": round(regret, 6),
+                            "maximum_regret": self.max_agent_utility_regret,
+                        },
+                    )
+                    self.harness.trace(
+                        run,
+                        actor="Ranking Validation Service",
+                        kind="SERVICE",
+                        name="sourcing.ranking_accepted",
+                        detail={
+                            "candidate_set_hash": validated_set.candidate_set_hash,
+                            "selected": f"{proposal.provider}/{proposal.offer_id}",
+                            "baseline": (
+                                f"{deterministic_best.offer.provider}/"
+                                f"{deterministic_best.offer.offer_id}"
+                            ),
+                            "utility_regret": round(regret, 6),
                         },
                     )
                     break
@@ -1196,7 +1452,24 @@ class ProcurementEngine:
                     detail={
                         "provider": proposal.provider,
                         "offer_id": proposal.offer_id,
-                        "reason": "candidate or required evidence did not pass server validation",
+                        "reason": (
+                            "utility regret exceeds guardrail"
+                            if proposed and evidence_is_valid
+                            else "candidate or required evidence did not pass server validation"
+                        ),
+                        "utility_regret": round(regret, 6),
+                    },
+                    status="REJECTED",
+                )
+                self.harness.trace(
+                    run,
+                    actor="Ranking Validation Service",
+                    kind="SERVICE",
+                    name="sourcing.ranking_rejected",
+                    detail={
+                        "candidate_set_hash": validated_set.candidate_set_hash,
+                        "selected": f"{proposal.provider}/{proposal.offer_id}",
+                        "utility_regret": round(regret, 6),
                     },
                     status="REJECTED",
                 )
@@ -1227,6 +1500,11 @@ class ProcurementEngine:
             normalization_issues=normalization_issues,
             selection_source=selection_source,
             selection_rationale=selection_rationale,
+            requirement_spec_id=(run.requirement_spec.spec_id if run.requirement_spec else None),
+            requirement_spec_hash=validated_set.requirement_spec_hash,
+            candidate_set_hash=validated_set.candidate_set_hash,
+            ranking_policy_version="ranking-policy-v1",
+            utility_regret=round(selected_regret, 6),
             summary=summary,
         )
         self.harness.trace(
@@ -1264,6 +1542,68 @@ class ProcurementEngine:
         run.messages.append(Message(role="assistant", content=summary))
         return RunResponse(run=run, assistant_message=summary)
 
+    async def _rank_validated_candidates(
+        self,
+        run: ProcurementRun,
+        *,
+        validated_set: ValidatedCandidateSet,
+        agent_context: AgentRuntimeContext,
+    ) -> SourcingRankingDecision | None:
+        idempotency_key = (
+            f"agent:{run.run_id}:SOURCING_RANK:{validated_set.candidate_set_hash}"
+        )
+        existing = self.execution_repository.get_agent(idempotency_key)
+        if existing is not None and existing.status == ExecutionStatus.SUCCEEDED:
+            payload = existing.result_json or {}
+            ranking_payload = payload.get("ranking")
+            return (
+                SourcingRankingDecision.model_validate(ranking_payload)
+                if ranking_payload is not None
+                else None
+            )
+        claimed = self.execution_repository.claim_agent(
+            AgentExecution(
+                tenant_id=run.tenant_id,
+                user_id=run.user_id,
+                run_id=run.run_id,
+                node_name="sourcing_rank",
+                agent_kind=AgentKind.SOURCING.value,
+                task_id=f"rank_{run.state_version}",
+                state_version=run.state_version,
+                input_fingerprint=validated_set.candidate_set_hash,
+                idempotency_key=idempotency_key,
+            )
+        )
+        self.harness.trace(
+            run,
+            actor="Sourcing Agent",
+            kind="AGENT",
+            name="sourcing.ranking_started",
+            detail={
+                "execution_id": claimed.execution_id,
+                "candidate_set_hash": validated_set.candidate_set_hash,
+                "requirement_version": validated_set.requirement_version,
+            },
+        )
+        try:
+            ranking = await self.planner.rank_candidates(
+                validated_set, context=agent_context
+            )
+            self.execution_repository.complete_agent(
+                claimed.execution_id,
+                {
+                    "ranking": ranking.model_dump(mode="json")
+                    if ranking is not None
+                    else None
+                },
+            )
+            return ranking
+        except Exception as exc:
+            self.execution_repository.fail_agent(
+                claimed.execution_id, f"{type(exc).__name__}: {exc}"
+            )
+            raise
+
     async def _search_catalog_with_journal(
         self,
         run: ProcurementRun,
@@ -1286,7 +1626,9 @@ class ProcurementEngine:
         )
         return CatalogSearchResult.model_validate(result)
 
-    async def _plan(self, run: ProcurementRun) -> AgentRuntimeContext:
+    async def _plan(
+        self, run: ProcurementRun, expected_kind: AgentKind | None = None
+    ) -> AgentRuntimeContext:
         employee = self.enterprise.identity(run.tenant_id, run.user_id)
         context = AgentRuntimeContext(
             run=run,
@@ -1297,13 +1639,25 @@ class ProcurementEngine:
             tool_gateway=self.tool_gateway,
             model_gateway=self.model_gateway,
             context_assembler=self.context_assembler,
+            requirement_spec=run.requirement_spec,
         )
+        if expected_kind is not None:
+            context.agent_kind = expected_kind.value
+        if expected_kind is not None and hasattr(self.planner, "plan_for"):
+            async def operation():
+                return await self.planner.plan_for(
+                    expected_kind, run.messages, context=context
+                )
+        else:
+            async def operation():
+                return await self.planner.plan(run.messages, context=context)
         plan = await self.harness.execute_agent_turn(
             run,
-            lambda: self.planner.plan(run.messages, context=context),
+            operation,
         )
         context.proposed_candidates = plan.candidate_proposals
         context.decision_rationale = plan.rationale
+        context.requirement_spec = plan.requirement_spec
         self.harness.trace(
             run,
             actor="Application Runtime",
@@ -1424,6 +1778,7 @@ class ProcurementEngine:
             "budget_tax_included",
             "delivery_city",
             "minimum_ram_gb",
+            "minimum_storage_gb",
         ]
         missing = sorted(
             (field for field in required if getattr(requirement, field) is None),

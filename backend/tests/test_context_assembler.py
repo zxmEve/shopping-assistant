@@ -212,6 +212,7 @@ def test_context_trimming_keeps_current_message_and_whole_memory_items(tmp_path)
     )
     policy = DEFAULT_CONTEXT_POLICY.model_copy(deep=True)
     policy.agents[AgentKind.SOURCING].max_context_tokens = 350
+    policy.agents[AgentKind.SOURCING].max_recent_messages = 3
     assembler = ContextAssembler(repository, policy=policy)
     run = complete_run()
     run.messages = [
@@ -261,13 +262,16 @@ async def test_engine_passes_assembled_context_to_agent_and_traces_only_metadata
         message=COMPLETE_REQUEST,
     )
 
-    assert len(adapter.envelopes) == 1
-    envelope = adapter.envelopes[0]
+    assert len(adapter.envelopes) == 2
+    envelope = adapter.envelopes[-1]
     assert envelope.task.agent == AgentKind.SOURCING
     assert envelope.context is not None
     assert [item.memory_id for item in envelope.context.memories] == [memory.memory_id]
     trace = next(
-        event for event in response.run.trace if event.name == "context.assembly_completed"
+        event
+        for event in response.run.trace
+        if event.name == "context.assembly_completed"
+        and event.detail["agent"] == AgentKind.SOURCING
     )
     assert trace.detail["selected"][0]["memory_id"] == memory.memory_id
     assert "只在 Agent envelope 中使用的私人偏好" not in str(trace.detail)

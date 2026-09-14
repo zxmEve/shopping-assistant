@@ -1,4 +1,4 @@
-version: context-policy-v1
+version: context-policy-v2
 ranking:
   task_match: 0.40
   category_or_key_match: 0.25
@@ -19,7 +19,7 @@ agents:
       - team.device_standard.general
   SOURCING:
     max_context_tokens: 7000
-    max_recent_messages: 3
+    max_recent_messages: 0
     max_profile_memories: 4
     max_team_memories: 3
     max_episodic_memories: 2

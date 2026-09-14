@@ -247,6 +247,29 @@ class ReadOnlyToolPlanner:
         )
 
 
+class FailedProviderToolPlanner:
+    def __init__(self) -> None:
+        self.search_tool = build_function_tools()["search_catalog"]
+
+    async def plan(
+        self,
+        messages: list[Message],
+        *,
+        context: AgentRuntimeContext | None = None,
+    ) -> AgentPlan:
+        assert context is not None
+        await invoke(
+            self.search_tool,
+            context,
+            '{"provider":"marketplace_beta"}',
+        )
+        return AgentPlan(
+            next_action="source_and_review",
+            specialist="Sourcing Agent",
+            rationale="continue with the available providers",
+        )
+
+
 @pytest.mark.asyncio
 async def test_engine_reuses_catalog_result_already_collected_by_agent_tool():
     catalog = CountingCatalog()
@@ -277,6 +300,42 @@ async def test_engine_reuses_catalog_result_already_collected_by_agent_tool():
         and event.detail.get("reused_agent_tool_result") is True
         for event in response.run.trace
     )
+
+
+@pytest.mark.asyncio
+async def test_engine_does_not_redispatch_provider_failed_during_agent_retrieval():
+    catalog = CountingCatalog()
+    engine = ProcurementEngine(
+        catalog=catalog,
+        enterprise=FixtureEnterpriseGateway(),
+        repository=RunRepository(),
+        harness=AgentHarness(secret="test"),
+        planner=FailedProviderToolPlanner(),
+    )
+
+    response = await engine.start(
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message="采购20台开发笔记本，单台8000元含税，送雅加达，两周内，最低32GB和1TB",
+        scenario="provider_429",
+    )
+
+    assert response.run.state.value == "WAITING_CONFIRMATION"
+    assert catalog.search_calls.count("marketplace_beta") == 3
+    assert sorted(set(catalog.search_calls)) == [
+        "internal_catalog",
+        "marketplace_alpha",
+        "marketplace_beta",
+    ]
+    failed_beta_calls = [
+        item
+        for item in engine.execution_repository.list_tools(
+            response.run.run_id, tenant_id="demo_cn"
+        )
+        if item.provider == "marketplace_beta"
+    ]
+    assert len(failed_beta_calls) == 1
+    assert failed_beta_calls[0].attempt_count == 1
 
 
 class EvidenceBackedDecisionPlanner:

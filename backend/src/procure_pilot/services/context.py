@@ -96,7 +96,7 @@ class ContextBudgetError(RuntimeError):
 
 DEFAULT_CONTEXT_POLICY = ContextPolicy.model_validate(
     {
-        "version": "context-policy-v1",
+        "version": "context-policy-v2",
         "ranking": {
             "task_match": 0.40,
             "category_or_key_match": 0.25,
@@ -120,7 +120,7 @@ DEFAULT_CONTEXT_POLICY = ContextPolicy.model_validate(
             },
             "SOURCING": {
                 "max_context_tokens": 7000,
-                "max_recent_messages": 3,
+                "max_recent_messages": 0,
                 "max_profile_memories": 4,
                 "max_team_memories": 3,
                 "max_episodic_memories": 2,
@@ -160,8 +160,15 @@ class ContextAssembler:
         team_id: str,
     ) -> AssembledAgentContext:
         rule = self.policy.agents[agent]
+        eligible_messages = (
+            [item for item in run.messages if item.role == "user"]
+            if agent == AgentKind.REQUIREMENT
+            else run.messages
+        )
         message_window = (
-            run.messages[-rule.max_recent_messages :] if rule.max_recent_messages else []
+            eligible_messages[-rule.max_recent_messages :]
+            if rule.max_recent_messages
+            else []
         )
         recent_messages = [
             ContextMessage(role=item.role, content=item.content) for item in message_window

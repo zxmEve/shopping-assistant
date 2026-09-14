@@ -16,6 +16,8 @@ from pydantic import (
     model_validator,
 )
 
+from procure_pilot.domain.requirements import RequirementSpec
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -266,6 +268,40 @@ class Candidate(BaseModel):
     score: float = 0
 
 
+class ValidatedCandidateView(BaseModel):
+    provider: str
+    offer_id: str
+    brand: str
+    model: str
+    landed_total: Money
+    delivery_days: int
+    policy_decision: PolicyDecision
+    approval_route: list[str]
+    evidence_refs: list[str]
+    utility_score: float = Field(ge=0, le=1)
+
+
+class ValidatedCandidateSet(BaseModel):
+    run_id: str
+    candidate_set_hash: str
+    requirement_spec_id: str | None = None
+    requirement_spec_hash: str | None = None
+    requirement_version: int
+    policy_version: str
+    candidates: list[ValidatedCandidateView] = Field(min_length=1)
+
+
+class SourcingRankingDecision(BaseModel):
+    provider: str
+    offer_id: str
+    evidence_refs: list[str] = Field(min_length=1)
+    rationale: str = Field(min_length=1, max_length=1000)
+    candidate_set_hash: str
+    requirement_spec_id: str | None = None
+    requirement_spec_hash: str | None = None
+    requirement_version: int
+
+
 class Recommendation(BaseModel):
     lowest_cost: Candidate
     fastest_delivery: Candidate
@@ -277,6 +313,11 @@ class Recommendation(BaseModel):
     normalization_issues: list[OfferMatchAssessment] = Field(default_factory=list)
     selection_source: str = "deterministic_score"
     selection_rationale: str = ""
+    requirement_spec_id: str | None = None
+    requirement_spec_hash: str | None = None
+    candidate_set_hash: str | None = None
+    ranking_policy_version: str = "ranking-policy-v1"
+    utility_regret: float = Field(default=0, ge=0)
     summary: str
 
 
@@ -362,6 +403,7 @@ class ExecutionUsage(BaseModel):
 
 
 class Message(BaseModel):
+    message_id: str = Field(default_factory=lambda: f"msg_{uuid4().hex[:12]}")
     role: str
     content: str
     created_at: datetime = Field(default_factory=utc_now)
@@ -391,6 +433,10 @@ class ProcurementRun(BaseModel):
     scenario: str | None = None
     clarification_rounds: int = Field(default=0, ge=0, le=3)
     requirement: ProcurementRequirement = Field(default_factory=ProcurementRequirement)
+    requirement_spec: RequirementSpec | None = None
+    requirement_spec_history: list[RequirementSpec] = Field(default_factory=list)
+    validated_candidate_set: ValidatedCandidateSet | None = None
+    sourcing_ranking: SourcingRankingDecision | None = None
     messages: list[Message] = Field(default_factory=list)
     trace: list[TraceEvent] = Field(default_factory=list)
     recommendation: Recommendation | None = None

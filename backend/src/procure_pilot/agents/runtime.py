@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from procure_pilot.agents.tools import AgentCandidateProposal, AgentRuntimeContext
 from procure_pilot.domain.models import Message
+from procure_pilot.domain.requirements import RequirementSpec
 
 
 class AgentPlan(BaseModel):
@@ -15,6 +16,7 @@ class AgentPlan(BaseModel):
     required_evidence: list[str] = Field(default_factory=list)
     candidate_proposals: list[AgentCandidateProposal] = Field(default_factory=list, max_length=3)
     stop_condition: str = ""
+    requirement_spec: RequirementSpec | None = None
 
 
 class AgentPlanner(Protocol):
@@ -64,9 +66,31 @@ def topology_description(
         "specialists": ["Requirement Agent", "Sourcing Agent"],
         "pattern": "deterministic-runtime-with-two-agents",
         "function_tools": [
-            "inspect_procurement_requirement",
             "search_catalog",
         ],
+        "agent_contracts": {
+            "Requirement Agent": {
+                "model": resolved_models["requirement"] if mode == "openai" else "fixture",
+                "context": [
+                    "current_user_message",
+                    "validated_base_requirement_spec",
+                    "requirement_schema_snapshot",
+                    "authorized_minimal_memory_projection",
+                ],
+                "tools": [],
+                "output": "PROPOSED versioned RequirementSpec",
+            },
+            "Sourcing Agent": {
+                "model": resolved_models["sourcing"] if mode == "openai" else "fixture",
+                "context": [
+                    "VALIDATED_READY RequirementSpec",
+                    "authorized_preference_projection",
+                    "ValidatedCandidateSet during RANK",
+                ],
+                "tools": ["search_catalog during RETRIEVE"],
+                "output": "grounded candidate proposal and bound ranking",
+            },
+        },
         "deterministic_services": [
             "requirement_validation",
             "catalog_normalization_and_matching",

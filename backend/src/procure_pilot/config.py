@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     budget_user_daily_overrides_json: str = "{}"
     tool_provider_costs_micro_usd_json: str = "{}"
     model_max_reservation_micro_usd: int = 100_000
+    ranking_max_utility_regret: float = 0.05
     workflow_backend: str = "langgraph"
     workflow_checkpoint_backend: str = "auto"
     agent_mode: str = "deterministic"

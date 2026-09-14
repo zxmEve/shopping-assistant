@@ -51,6 +51,28 @@ def _percentile(values: list[int], percentile: float) -> int:
     return ordered[index]
 
 
+def _captured_model_usage(planner: object) -> dict[str, int]:
+    """Return provider usage even when the workflow fails before a RunResponse exists."""
+    adapter = getattr(planner, "adapter", None)
+    last_execution = getattr(adapter, "last_execution", None)
+    usage_by_execution = getattr(adapter, "usage_by_execution", {})
+    if not last_execution or not isinstance(usage_by_execution, dict):
+        return {"model_requests": 0, "input_tokens": 0, "output_tokens": 0}
+    run_prefix = f"{last_execution.split(':', 1)[0]}:"
+    usages = [
+        usage
+        for key, usage in usage_by_execution.items()
+        if key.startswith(run_prefix)
+    ]
+    return {
+        "model_requests": sum(item.requests for item in usages),
+        "input_tokens": sum(item.input_tokens for item in usages),
+        "output_tokens": sum(item.output_tokens for item in usages),
+        "cost_micro_usd": sum(item.cost_micro_usd for item in usages),
+        "structured_output_repairs": sum(item.output_repaired for item in usages),
+    }
+
+
 def _build_live_planner(
     *,
     model: str,
@@ -182,6 +204,7 @@ async def run_live_evaluation(
                         else {}
                     ),
                     "last_error": getattr(planner, "last_error", None),
+                    "usage": _captured_model_usage(planner),
                 }
             )
 
@@ -368,6 +391,7 @@ async def run_live_smoke_suite(
                             if isinstance(planner, TwoAgentPlanner)
                             else {}
                         ),
+                        "usage": _captured_model_usage(planner),
                     }
                 )
 

@@ -22,7 +22,9 @@ from procure_pilot.services.engine import (
     ProcurementEngine,
 )
 
-WorkflowWaitReason = Literal["MISSING_REQUIREMENT", "WAITING_CONFIRMATION"]
+WorkflowWaitReason = Literal[
+    "MISSING_REQUIREMENT", "READY_FOR_SOURCING", "WAITING_CONFIRMATION"
+]
 
 
 class ProcurementGraphState(TypedDict, total=False):
@@ -107,6 +109,7 @@ class LangGraphProcurementWorkflow:
             self._next_after_run,
             {
                 "wait_for_user": "wait_for_user",
+                "route_agent": "route_agent",
                 "wait_for_confirmation": "wait_for_confirmation",
                 "end": END,
             },
@@ -364,6 +367,12 @@ class LangGraphProcurementWorkflow:
         reason: WorkflowWaitReason | None = None
         if run_state == RunState.WAITING_USER:
             reason = "MISSING_REQUIREMENT"
+        elif (
+            run_state == RunState.COLLECTING
+            and state.get("agent_stage")
+            and state["agent_stage"].get("agent_kind") == AgentKind.REQUIREMENT.value
+        ):
+            reason = "READY_FOR_SOURCING"
         elif run_state == RunState.WAITING_CONFIRMATION:
             reason = "WAITING_CONFIRMATION"
         return {"wait_reason": reason, "last_node": "route_after_run"}
@@ -372,6 +381,8 @@ class LangGraphProcurementWorkflow:
     def _next_after_run(state: ProcurementGraphState) -> str:
         if state.get("wait_reason") == "MISSING_REQUIREMENT":
             return "wait_for_user"
+        if state.get("wait_reason") == "READY_FOR_SOURCING":
+            return "route_agent"
         if state.get("wait_reason") == "WAITING_CONFIRMATION":
             return "wait_for_confirmation"
         return "end"

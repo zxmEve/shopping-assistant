@@ -281,6 +281,7 @@ def get_engine() -> ProcurementEngine:
         provider_costs_micro_usd=settings.tool_provider_costs_micro_usd,
         model_max_reservation_micro_usd=settings.model_max_reservation_micro_usd,
         budget_reservation_ttl_seconds=settings.budget_reservation_ttl_seconds,
+        max_agent_utility_regret=settings.ranking_max_utility_regret,
     )
 
 

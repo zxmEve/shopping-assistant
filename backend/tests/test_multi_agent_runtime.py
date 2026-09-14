@@ -25,7 +25,7 @@ class RecordingAdapter(FixtureTwoAgentAdapter):
 
 
 @pytest.mark.asyncio
-async def test_complete_request_runs_only_sourcing_agent_then_deterministic_services():
+async def test_complete_request_runs_requirement_then_sourcing_agents():
     adapter = RecordingAdapter()
     planner = TwoAgentPlanner(adapter, fallback_on_error=False)
     engine = make_engine()
@@ -45,11 +45,11 @@ async def test_complete_request_runs_only_sourcing_agent_then_deterministic_serv
     assert completed.run.state == RunState.DRAFT_CREATED
     assert planner.last_outcome is not None
     assert planner.last_outcome.executed_agent == AgentKind.SOURCING
-    assert adapter.calls == [AgentKind.SOURCING]
+    assert adapter.calls == [AgentKind.REQUIREMENT, AgentKind.SOURCING]
     assert completed.run.execution_usage.orchestrator_requests == 0
-    assert completed.run.execution_usage.specialist_requests == 1
-    assert completed.run.execution_usage.stage_model_requests == 1
-    assert completed.run.execution_usage.agent_turns == 1
+    assert completed.run.execution_usage.specialist_requests == 3
+    assert completed.run.execution_usage.stage_model_requests == 3
+    assert completed.run.execution_usage.agent_turns == 3
     assert any(event.actor == "Policy Rule Service" for event in completed.run.trace)
     assert completed.run.execution_usage.reserved_commit_tool_calls == 0
 
@@ -114,7 +114,7 @@ async def test_runtime_rejects_tools_outside_agent_allowlist():
     assert response.run.recommendation.selection_source == "deterministic_score"
     assert "forbidden tools" in (planner.last_error or "")
     assert AGENT_TOOL_ALLOWLIST == {
-        AgentKind.REQUIREMENT: ("inspect_procurement_requirement",),
+        AgentKind.REQUIREMENT: (),
         AgentKind.SOURCING: ("search_catalog",),
     }
 

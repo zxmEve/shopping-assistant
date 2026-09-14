@@ -9,10 +9,7 @@ def test_topology_description_discloses_exactly_two_agents():
     assert topology["model"] == "deterministic-two-agent-fixture"
     assert topology["agents"] == ["Requirement Agent", "Sourcing Agent"]
     assert topology["manager"].endswith("not an Agent)")
-    assert topology["function_tools"] == [
-        "inspect_procurement_requirement",
-        "search_catalog",
-    ]
+    assert topology["function_tools"] == ["search_catalog"]
 
 
 def test_topology_description_discloses_deterministic_business_services():

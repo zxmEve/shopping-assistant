@@ -6,6 +6,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from procure_pilot.agents.tools import AgentCandidateProposal
+from procure_pilot.domain.models import ValidatedCandidateSet
+from procure_pilot.domain.requirements import RequirementSpec
 
 
 class AgentKind(StrEnum):
@@ -58,6 +60,10 @@ class AgentTaskEnvelope(BaseModel):
     missing_fields: list[str] = Field(default_factory=list)
     context_summary: str = Field(default="", max_length=2000)
     context: AgentContextPayload | None = None
+    requirement_spec: RequirementSpec | None = None
+    source_message_id: str | None = None
+    validated_candidates: ValidatedCandidateSet | None = None
+    requirement_schema: dict[str, Any] | None = None
 
 
 class AgentResult(BaseModel):
@@ -72,6 +78,7 @@ class AgentResult(BaseModel):
         max_length=3,
     )
     warnings: list[str] = Field(default_factory=list)
+    requirement_spec: RequirementSpec | None = None
 
 
 class TwoAgentOutcome(BaseModel):

@@ -23,12 +23,19 @@ from procure_pilot.agents.tools import (
     AgentRuntimeContext,
     build_function_tools,
 )
-from procure_pilot.domain.models import BudgetResource, Message
+from procure_pilot.domain.models import (
+    BudgetResource,
+    Message,
+    SourcingRankingDecision,
+    ValidatedCandidateSet,
+)
+from procure_pilot.domain.requirements import RequirementAuthority, RequirementStatus
 from procure_pilot.gateway.tool_gateway import (
     DEFAULT_AGENT_TOOL_NAMES,
     GatewayToolRegistry,
 )
 from procure_pilot.harness.runtime import HarnessBudgetExceeded
+from procure_pilot.services.requirement_validation import RequirementCompletenessPolicy
 
 
 class ModelCallUsage(BaseModel):
@@ -54,6 +61,14 @@ class TwoAgentAdapter(Protocol):
         allowed_tools: tuple[str, ...],
     ) -> AdapterCall[AgentResult]: ...
 
+    async def rank_candidates(
+        self,
+        envelope: AgentTaskEnvelope,
+        *,
+        context: AgentRuntimeContext,
+        allowed_tools: tuple[str, ...],
+    ) -> AdapterCall[AgentResult]: ...
+
 
 class TwoAgentRuntimeError(RuntimeError):
     pass
@@ -70,18 +85,9 @@ AGENT_TOOL_ALLOWLIST: dict[AgentKind, tuple[str, ...]] = {
 }
 
 AGENT_TRACE_ALLOWLIST: dict[AgentKind, frozenset[str]] = {
-    AgentKind.REQUIREMENT: frozenset({"inspect_requirement"}),
+    AgentKind.REQUIREMENT: frozenset(),
     AgentKind.SOURCING: frozenset({"search_catalog"}),
 }
-
-REQUIRED_FIELDS = (
-    "quantity",
-    "unit_budget",
-    "budget_tax_included",
-    "delivery_city",
-    "minimum_ram_gb",
-    "minimum_storage_gb",
-)
 
 
 class AgentFactory:
@@ -113,6 +119,7 @@ class TwoAgentPlanner:
     """Deterministic workflow router around two narrowly-scoped model agents."""
 
     pattern = "deterministic-runtime-with-two-agents"
+    requires_requirement_stage = True
 
     def __init__(
         self,
@@ -141,7 +148,9 @@ class TwoAgentPlanner:
         self.last_error = None
         self._has_reserved_first_global_request = False
         try:
-            return await self._run(messages, context)
+            if not context.agent_kind:
+                raise TwoAgentRuntimeError("Application Runtime must select the Agent role")
+            return await self._run(messages, context, AgentKind(context.agent_kind))
         except HarnessBudgetExceeded:
             raise
         except Exception as exc:
@@ -158,21 +167,46 @@ class TwoAgentPlanner:
                 raise
             return await self.fallback.plan(messages, context=context)
 
-    async def _run(self, messages: list[Message], context: AgentRuntimeContext) -> AgentPlan:
-        missing = [
-            name for name in REQUIRED_FIELDS if getattr(context.run.requirement, name) is None
-        ]
-        kind = AgentKind.REQUIREMENT if missing else AgentKind.SOURCING
+    async def plan_for(
+        self,
+        kind: AgentKind,
+        messages: list[Message],
+        *,
+        context: AgentRuntimeContext,
+    ) -> AgentPlan:
+        context.agent_kind = kind.value
+        return await self.plan(messages, context=context)
+
+    async def _run(
+        self, messages: list[Message], context: AgentRuntimeContext, kind: AgentKind
+    ) -> AgentPlan:
+        if kind == AgentKind.SOURCING:
+            spec = context.run.requirement_spec
+            if (
+                spec is None
+                or spec.authority != RequirementAuthority.VALIDATED
+                or spec.status != RequirementStatus.READY_FOR_SOURCING
+                or spec.missing_fields
+                or any(item.blocking for item in spec.conflicts)
+            ):
+                raise TwoAgentRuntimeError(
+                    "Sourcing Agent requires the current VALIDATED/READY RequirementSpec"
+                )
+        missing = (
+            [item.field for item in context.run.requirement_spec.missing_fields]
+            if context.run.requirement_spec
+            else []
+        )
         task = AgentTask(
-            task_id=f"{'requirement' if missing else 'source'}_{context.run.state_version}",
+            task_id=f"{'requirement' if kind == AgentKind.REQUIREMENT else 'source'}_{context.run.state_version}",
             agent=kind,
             objective=(
-                "Identify the smallest set of missing procurement facts."
-                if missing
+                "Produce one evidence-grounded, versioned RequirementSpec delta."
+                if kind == AgentKind.REQUIREMENT
                 else "Search approved providers and propose real catalog offer IDs."
             ),
-            max_model_requests=2 if missing else 4,
-            max_tool_calls=1 if missing else 3,
+            max_model_requests=2 if kind == AgentKind.REQUIREMENT else 4,
+            max_tool_calls=0 if kind == AgentKind.REQUIREMENT else 3,
         )
         self._preflight(context)
         assembled = None
@@ -220,6 +254,13 @@ class TwoAgentPlanner:
                 missing_fields=missing,
                 context_summary=(messages[-1].content if messages and assembled is None else ""),
                 context=assembled.payload if assembled is not None else None,
+                requirement_spec=context.run.requirement_spec,
+                source_message_id=(messages[-1].message_id if messages else None),
+                requirement_schema=(
+                    RequirementCompletenessPolicy.schema_snapshot()
+                    if kind == AgentKind.REQUIREMENT
+                    else None
+                ),
             ),
             context,
         )
@@ -233,6 +274,7 @@ class TwoAgentPlanner:
                 required_evidence=["requirement"],
                 candidate_proposals=[],
                 stop_condition=stop_condition,
+                requirement_spec=result.requirement_spec,
             )
         else:
             proposals = result.candidate_proposals
@@ -274,7 +316,11 @@ class TwoAgentPlanner:
         context.harness.assert_budget_available(context.run, BudgetResource.STAGE_MODEL_REQUESTS, 1)
 
     async def _execute_task(
-        self, envelope: AgentTaskEnvelope, context: AgentRuntimeContext
+        self,
+        envelope: AgentTaskEnvelope,
+        context: AgentRuntimeContext,
+        *,
+        rank_phase: bool = False,
     ) -> AgentResult:
         task = envelope.task
         execution_id = f"ax_{uuid4().hex[:12]}"
@@ -299,8 +345,14 @@ class TwoAgentPlanner:
             call = await self._invoke_adapter(
                 context,
                 task.agent,
-                lambda: self.adapter.execute_agent(
-                    envelope, context=context, allowed_tools=allowed_tools
+                lambda: (
+                    self.adapter.rank_candidates(
+                        envelope, context=context, allowed_tools=allowed_tools
+                    )
+                    if rank_phase
+                    else self.adapter.execute_agent(
+                        envelope, context=context, allowed_tools=allowed_tools
+                    )
                 ),
                 max_requests=task.max_model_requests,
                 operation_name=f"agent:{task.task_id}",
@@ -320,6 +372,24 @@ class TwoAgentPlanner:
             raise StaleAgentResultError(f"Stale result for task {task.task_id}")
         if result.status == "FAILED":
             raise TwoAgentRuntimeError(f"Agent task failed: {task.task_id}")
+        if task.agent == AgentKind.REQUIREMENT:
+            if result.requirement_spec is None:
+                raise TwoAgentRuntimeError("Requirement Agent omitted RequirementSpec")
+            requirement_evidence_ids = {
+                item.evidence_id for item in result.requirement_spec.evidence
+            }
+            foreign_evidence_refs = set(result.evidence_refs) - requirement_evidence_ids
+            if result.candidate_proposals or foreign_evidence_refs:
+                raise TwoAgentRuntimeError(
+                    "Requirement Agent returned forbidden product or catalog output"
+                )
+            if result.evidence_refs:
+                result.warnings.append(
+                    "Top-level Requirement evidence refs were normalized into RequirementSpec."
+                )
+                result.evidence_refs = []
+        elif result.requirement_spec is not None:
+            raise TwoAgentRuntimeError("Sourcing Agent cannot modify RequirementSpec")
         tool_events = [
             event
             for event in context.run.trace[trace_start:]
@@ -349,6 +419,59 @@ class TwoAgentPlanner:
             status=result.status,
         )
         return result
+
+    async def rank_candidates(
+        self,
+        candidate_set: ValidatedCandidateSet,
+        *,
+        context: AgentRuntimeContext,
+    ) -> SourcingRankingDecision | None:
+        if not hasattr(self.adapter, "rank_candidates"):
+            return None
+        task = AgentTask(
+            task_id=f"rank_{context.run.state_version}",
+            agent=AgentKind.SOURCING,
+            objective="Rank only the server-validated candidates and explain the trade-off.",
+            max_model_requests=2,
+            max_tool_calls=0,
+        )
+        context.sourcing_phase = "RANK"
+        result = await self._execute_task(
+            AgentTaskEnvelope(
+                run_id=context.run.run_id,
+                state_version=context.run.state_version,
+                task=task,
+                requirement=context.run.requirement.model_dump(mode="json"),
+                requirement_spec=context.run.requirement_spec,
+                validated_candidates=candidate_set,
+            ),
+            context,
+            rank_phase=True,
+        )
+        if not result.candidate_proposals:
+            return None
+        proposal = result.candidate_proposals[0]
+        returned_hash = result.output.get("candidate_set_hash")
+        returned_spec_id = result.output.get("requirement_spec_id")
+        returned_spec_hash = result.output.get("requirement_spec_hash")
+        returned_version = result.output.get("requirement_version")
+        if (
+            returned_hash != candidate_set.candidate_set_hash
+            or returned_spec_id != candidate_set.requirement_spec_id
+            or returned_spec_hash != candidate_set.requirement_spec_hash
+            or returned_version != candidate_set.requirement_version
+        ):
+            raise TwoAgentRuntimeError("Sourcing ranking is not bound to the validated input")
+        return SourcingRankingDecision(
+            provider=proposal.provider,
+            offer_id=proposal.offer_id,
+            evidence_refs=proposal.evidence_refs,
+            rationale=str(result.output.get("ranking_rationale") or "Sourcing Agent ranking"),
+            candidate_set_hash=returned_hash,
+            requirement_spec_id=returned_spec_id,
+            requirement_spec_hash=returned_spec_hash,
+            requirement_version=returned_version,
+        )
 
     async def _invoke_adapter[T](
         self,
@@ -426,8 +549,18 @@ class FixtureTwoAgentAdapter:
         allowed_tools: tuple[str, ...],
     ) -> AdapterCall[AgentResult]:
         if envelope.task.agent == AgentKind.REQUIREMENT:
-            inspected = await self._invoke(
-                "inspect_procurement_requirement", context, {}, allowed_tools
+            if allowed_tools:
+                raise TwoAgentRuntimeError("Requirement Agent must have an empty tool allowlist")
+            if not context.run.messages or context.run.messages[-1].role != "user":
+                raise TwoAgentRuntimeError("Requirement Agent requires a current user message")
+            from procure_pilot.services.requirement_validation import RequirementSpecService
+
+            message = context.run.messages[-1]
+            spec = RequirementSpecService().propose(
+                run_id=context.run.run_id,
+                message_id=message.message_id,
+                text=message.content,
+                base=context.run.requirement_spec,
             )
             return AdapterCall(
                 AgentResult(
@@ -435,7 +568,11 @@ class FixtureTwoAgentAdapter:
                     agent=envelope.task.agent,
                     state_version=envelope.state_version,
                     status="SUCCEEDED",
-                    output={"missing_fields": inspected.missing_fields},
+                    output={
+                        "missing_fields": [item.field for item in spec.missing_fields],
+                        "status": spec.status,
+                    },
+                    requirement_spec=spec,
                 )
             )
         if envelope.task.agent == AgentKind.SOURCING:
@@ -465,6 +602,40 @@ class FixtureTwoAgentAdapter:
                 )
             )
         raise TwoAgentRuntimeError(f"Unsupported fixture Agent: {envelope.task.agent}")
+
+    async def rank_candidates(
+        self,
+        envelope: AgentTaskEnvelope,
+        *,
+        context: AgentRuntimeContext,
+        allowed_tools: tuple[str, ...],
+    ) -> AdapterCall[AgentResult]:
+        candidate_set = envelope.validated_candidates
+        if candidate_set is None:
+            raise TwoAgentRuntimeError("RANK phase requires ValidatedCandidateSet")
+        selected = max(candidate_set.candidates, key=lambda item: item.utility_score)
+        proposal = AgentCandidateProposal(
+            provider=selected.provider,
+            offer_id=selected.offer_id,
+            evidence_refs=selected.evidence_refs,
+        )
+        return AdapterCall(
+            AgentResult(
+                task_id=envelope.task.task_id,
+                agent=AgentKind.SOURCING,
+                state_version=envelope.state_version,
+                status="SUCCEEDED",
+                output={
+                    "ranking_rationale": "在服务端合规候选中按综合效用排序。",
+                    "candidate_set_hash": candidate_set.candidate_set_hash,
+                    "requirement_spec_id": candidate_set.requirement_spec_id,
+                    "requirement_spec_hash": candidate_set.requirement_spec_hash,
+                    "requirement_version": candidate_set.requirement_version,
+                },
+                evidence_refs=selected.evidence_refs,
+                candidate_proposals=[proposal],
+            )
+        )
 
     async def _invoke(
         self,
