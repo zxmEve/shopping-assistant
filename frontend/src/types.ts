@@ -84,6 +84,30 @@ export type Recommendation = {
 
 export type Message = { role: string; content: string; created_at: string }
 
+export type ClarificationQuestion = {
+  question_id: string
+  field: string
+  field_ids: string[]
+  text: string
+  resolves_conflict_id?: string | null
+}
+
+export type RequirementSpec = {
+  schema_version: string
+  version: number
+  status: 'NEEDS_CLARIFICATION' | 'READY_FOR_SOURCING'
+  field_resolutions: Record<string, {
+    state: 'UNRESOLVED' | 'EXPLICIT' | 'NO_PREFERENCE' | 'AUTHORIZED_DEFAULT' | 'CONFIRMED_REFERENCE' | 'PROPOSED_REFERENCE'
+    evidence_ids: string[]
+    source_ref?: string | null
+  } | null>
+  clarification_plan: {
+    questions: ClarificationQuestion[]
+    covered_fields: string[]
+    repaired_question_count: number
+  }
+}
+
 export type Run = {
   run_id: string
   tenant_id: string
@@ -91,7 +115,24 @@ export type Run = {
   state: string
   scenario?: string
   clarification_rounds: number
+  requirement_spec?: RequirementSpec | null
+  wait_reason?: string | null
+  message_routes: {request_id: string; message: string; scenario?: string; status: string; base_requirement_version: number; base_recommendation_version: number; expected_requirement_version?: number; expected_recommendation_version?: number; expected_resolution_draft_id?: string; expected_resolution_version?: number; proposal: {reason: string}; source: 'model' | 'deterministic' | 'fallback' | 'user'}[]
+  resolution_draft?: {
+    draft_id: string; version: number; content_hash: string; base_requirement_version: number
+    status: 'HISTORY_SELECTION' | 'NEEDS_INPUT' | 'BLOCKED' | 'READY' | 'CONFIRMED'
+    proposed_spec: RequirementSpec
+    fields: {field: string; value: string | number | boolean; source: 'USER' | 'POLICY' | 'HISTORY'; source_ref: string; reason: string}[]
+    changes: string[]; missing_fields: string[]; blockers: string[]
+  } | null
+  reference_policy?: {source_version: string; effective_from?: string | null; citations: {document_title: string; document_version: number; heading: string; clause_ref?: string | null; excerpt: string; source_ref: string}[]} | null
+  reference_history?: {detail: string; orders: {order_id: string; purchased_at: string; status: string; model_text: string; simulated: boolean}[]} | null
+  requirement_confirmations: {request_id: string; draft_id: string; draft_version: number; content_hash: string; status: string}[]
+  recommendation_version: number
+  negotiation_options: { option_id: string; base_requirement_version: number; expires_at: string; adjustments: {field: string; previous: string | number; proposed: string | number}[] }[]
+  fact_evidence: {fact_id: string; provider: string; offer_id: string; kind: string; status: string; value: Record<string, string | number> | null; source_ref: string; fetched_at: string; expires_at: string}[]
   requirement: {
+    version: number
     quantity?: number
     unit_budget?: Money
     budget_tax_included?: boolean
@@ -127,7 +168,18 @@ export type Run = {
   }
 }
 
+export type MessageRouteResult = {
+  request_id: string
+  route: 'CONTINUE' | 'NEW' | 'CLARIFY'
+  origin_run_id: string
+  target_run_id?: string | null
+  reason: string
+  source: 'model' | 'deterministic' | 'fallback' | 'user'
+  choices: ('CONTINUE' | 'NEW')[]
+}
+
 export type RunResponse = {
+  message_route?: MessageRouteResult | null
   run: Run
   assistant_message: string
   suggested_replies: string[]
@@ -140,6 +192,12 @@ export type EvalSummary = {
   task_success_rate?: number
   veto_failures: string[]
   metrics?: Record<string, number>
+}
+
+export type RuntimeStatus = {
+  mode: 'deterministic' | 'openai' | string
+  model: string
+  model_provider: string
 }
 
 export type MemoryCandidate = {

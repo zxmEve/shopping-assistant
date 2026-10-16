@@ -144,6 +144,9 @@ class AgentRuntimeContext:
 
     def remember_catalog_result(self, result: CatalogSearchResult) -> None:
         self.catalog_results[result.provider] = result
+        existing = {(o.provider, o.offer_id): o for o in self.run.recalled_offers}
+        existing.update({(o.provider, o.offer_id): o for o in result.offers})
+        self.run.recalled_offers = list(existing.values())
         for offer in result.offers:
             self.offers[(offer.provider, offer.offer_id)] = offer
 
@@ -234,6 +237,36 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
     def policy_available(wrapper: RunContextWrapper[AgentRuntimeContext], _agent: Any) -> bool:
         return bool(wrapper.context.offers) and not wrapper.context.policy_evaluation_started
 
+    def reference_available(wrapper, _agent, kind):
+        context = wrapper.context
+        request = context.run.reference_request
+        return (context.agent_kind == "REQUIREMENT" and request is not None
+            and (request.history if kind == "HISTORY" else request.policy or request.history))
+
+    async def invoke_reference(wrapper, name):
+        context = wrapper.context
+        result = await context.require_gateway().invoke(tool_name=name, arguments={},
+            context=context.gateway_context(budget_pool=ToolBudgetPool.AGENT_READ))
+        if name == "query_procurement_policy":
+            context.run.reference_policy = result
+        else:
+            context.run.reference_history = result
+        context.harness.trace(context.run, actor="Requirement Agent", kind="TOOL", name=name,
+            detail={"source_hash": result.source_hash, "status": result.status})
+        return result.model_dump(mode="json")
+
+    @function_tool(name_override="query_procurement_policy", strict_mode=True, failure_error_function=safe_tool_error,
+        is_enabled=(lambda w,a: reference_available(w,a,"POLICY")) if dynamic_availability else True)
+    async def query_procurement_policy(wrapper: RunContextWrapper[AgentRuntimeContext]) -> dict:
+        """Read current applicable procurement policy for the user's explicitly requested requirement basis. Never infer missing standards."""
+        return await invoke_reference(wrapper, "query_procurement_policy")
+
+    @function_tool(name_override="query_purchase_history", strict_mode=True, failure_error_function=safe_tool_error,
+        is_enabled=(lambda w,a: reference_available(w,a,"HISTORY")) if dynamic_availability else True)
+    async def query_purchase_history(wrapper: RunContextWrapper[AgentRuntimeContext]) -> dict:
+        """Read authorized historical completed orders (simulated). Multiple matches require user selection; past prices and delivery facts are not current facts."""
+        return await invoke_reference(wrapper, "query_purchase_history")
+
     @function_tool(
         name_override="inspect_procurement_requirement",
         strict_mode=True,
@@ -312,11 +345,9 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
         """Search one approved provider using the current server-owned requirement."""
         context = wrapper.context
         requirement = context.run.requirement
-        if (
-            requirement.quantity is None
-            or requirement.minimum_ram_gb is None
-            or requirement.minimum_storage_gb is None
-        ):
+        from procure_pilot.services.requirement_validation import RequirementCompletenessPolicy
+
+        if requirement.quantity is None or RequirementCompletenessPolicy.unresolved_configuration(requirement):
             raise ValueError("Requirement is incomplete; inspect and clarify it before sourcing")
         if provider in context.catalog_requested_providers:
             raise ValueError(f"Catalog provider {provider} was already requested.")
@@ -373,6 +404,35 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
             excluded_offer_count=len(result.assessments),
             offers=summaries,
         )
+
+    def facts_available(wrapper, _agent):
+        return bool(wrapper.context.offers) and wrapper.context.sourcing_phase == "RETRIEVE"
+
+    async def invoke_fact(wrapper, provider, offer_id, name):
+        context = wrapper.context
+        context.require_offer(provider, offer_id)
+        fact = await context.require_gateway().invoke(tool_name=name,
+            arguments={"provider": provider, "offer_id": offer_id},
+            context=context.gateway_context(budget_pool=ToolBudgetPool.AGENT_READ))
+        context.harness.trace(context.run, actor="Sourcing Agent", kind="TOOL", name=name,
+            detail={"provider": provider, "offer_id": offer_id, "fact_id": fact.fact_id,
+                    "scope": fact.scope, "expires_at": fact.expires_at.isoformat(), "status": fact.status})
+        return fact
+
+    @function_tool(name_override="query_inventory", strict_mode=True, failure_error_function=safe_tool_error, is_enabled=facts_available if dynamic_availability else True)
+    async def query_inventory(wrapper: RunContextWrapper[AgentRuntimeContext], provider: ProviderName, offer_id: str) -> dict:
+        """Check current stock for a recalled offer and the server-owned quantity."""
+        return (await invoke_fact(wrapper, provider, offer_id, "query_inventory")).model_dump(mode="json")
+
+    @function_tool(name_override="estimate_delivery", strict_mode=True, failure_error_function=safe_tool_error, is_enabled=facts_available if dynamic_availability else True)
+    async def estimate_delivery(wrapper: RunContextWrapper[AgentRuntimeContext], provider: ProviderName, offer_id: str) -> dict:
+        """Check delivery to the server-owned destination. Required for a deadline or delivery preference."""
+        return (await invoke_fact(wrapper, provider, offer_id, "estimate_delivery")).model_dump(mode="json")
+
+    @function_tool(name_override="query_warranty", strict_mode=True, failure_error_function=safe_tool_error, is_enabled=facts_available if dynamic_availability else True)
+    async def query_warranty(wrapper: RunContextWrapper[AgentRuntimeContext], provider: ProviderName, offer_id: str) -> dict:
+        """Check warranty months and regional coverage required by user or enterprise policy."""
+        return (await invoke_fact(wrapper, provider, offer_id, "query_warranty")).model_dump(mode="json")
 
     @function_tool(
         name_override="calculate_landed_cost",
@@ -463,8 +523,10 @@ def build_function_tools(*, dynamic_availability: bool = True) -> dict[str, Func
         tool.name: tool
         for tool in (
             inspect_requirement,
+            query_procurement_policy, query_purchase_history,
             get_budget,
             search_catalog,
+            query_inventory, estimate_delivery, query_warranty,
             landed_cost,
             evaluate_policy,
         )

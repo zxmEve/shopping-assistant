@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import (
@@ -16,7 +16,20 @@ from pydantic import (
     model_validator,
 )
 
-from procure_pilot.domain.requirements import RequirementSpec
+from procure_pilot.domain.conversation import (
+    MessageRouteRecord,
+    MessageRouteResult,
+    RunWaitReason,
+    TurnDecision,
+)
+from procure_pilot.domain.references import (
+    ReferenceLookupResult,
+    ReferenceRequest,
+    RequirementConfirmation,
+    RequirementResolutionDraft,
+)
+from procure_pilot.domain.requirements import FieldResolution, RequirementSpec
+from procure_pilot.domain.sourcing import CandidateAssessment, NegotiationOption, OfferFact
 
 
 def utc_now() -> datetime:
@@ -115,8 +128,10 @@ class ProcurementRequirement(BaseModel):
     minimum_ram_gb: int | None = Field(default=None, ge=4, le=512)
     minimum_storage_gb: int | None = Field(default=None, ge=128, le=16384)
     operating_system: str | None = None
+    minimum_warranty_months: int | None = Field(default=None, ge=1, le=120)
     condition: ProductCondition = ProductCondition.NEW
     assumptions: list[str] = Field(default_factory=list)
+    field_resolutions: dict[str, FieldResolution] = Field(default_factory=dict)
     version: int = 1
 
 
@@ -279,6 +294,10 @@ class ValidatedCandidateView(BaseModel):
     approval_route: list[str]
     evidence_refs: list[str]
     utility_score: float = Field(ge=0, le=1)
+    ram_gb: int | None = None
+    storage_gb: int | None = None
+    warranty_months: int | None = None
+    stock: int | None = None
 
 
 class ValidatedCandidateSet(BaseModel):
@@ -366,15 +385,15 @@ class StateTransitionEvent(BaseModel):
 
 class ExecutionBudget(BaseModel):
     max_state_transitions: int = Field(default=20, gt=0)
-    max_agent_turns: int = Field(default=12, gt=0)
+    max_agent_turns: int = Field(default=40, gt=0)
     max_orchestrator_requests: int = Field(default=2, gt=0)
-    max_specialist_requests: int = Field(default=8, gt=0)
-    max_stage_model_requests: int = Field(default=10, gt=0)
-    max_tool_calls: int = Field(default=21, gt=0)
-    max_agent_read_tool_calls: int = Field(default=12, gt=0)
-    max_workflow_read_tool_calls: int = Field(default=6, gt=0)
-    max_commit_tool_calls: int = Field(default=3, gt=0)
-    max_provider_calls: int = Field(default=12, gt=0)
+    max_specialist_requests: int = Field(default=32, gt=0)
+    max_stage_model_requests: int = Field(default=36, gt=0)
+    max_tool_calls: int = Field(default=120, gt=0)
+    max_agent_read_tool_calls: int = Field(default=48, gt=0)
+    max_workflow_read_tool_calls: int = Field(default=72, gt=0)
+    max_commit_tool_calls: int = Field(default=12, gt=0)
+    max_provider_calls: int = Field(default=100, gt=0)
     max_retries: int = Field(default=4, ge=0)
     max_input_tokens: int = Field(default=30_000, gt=0)
     max_output_tokens: int = Field(default=10_000, gt=0)
@@ -431,6 +450,29 @@ class ProcurementRun(BaseModel):
     execution_budget: ExecutionBudget = Field(default_factory=ExecutionBudget)
     execution_usage: ExecutionUsage = Field(default_factory=ExecutionUsage)
     scenario: str | None = None
+    contract_version: int = Field(default=2, ge=1, le=2)
+    wait_reason: RunWaitReason | None = None
+    reference_request: ReferenceRequest | None = None
+    reference_policy: ReferenceLookupResult | None = None
+    reference_history: ReferenceLookupResult | None = None
+    resolution_draft: RequirementResolutionDraft | None = None
+    confirmed_requirement_drafts: list[RequirementResolutionDraft] = Field(default_factory=list)
+    requirement_confirmations: list[RequirementConfirmation] = Field(default_factory=list)
+    fact_evidence: list[OfferFact] = Field(default_factory=list)
+    candidate_assessments: list[CandidateAssessment] = Field(default_factory=list)
+    negotiation_options: list[NegotiationOption] = Field(default_factory=list)
+    turn_decisions: list[TurnDecision] = Field(default_factory=list)
+    message_routes: list[MessageRouteRecord] = Field(default_factory=list)
+    processed_message_id: str | None = None
+    recalled_offers: list[Offer] = Field(default_factory=list)
+    candidate_pool: list[Candidate] = Field(default_factory=list)
+    ranking_preference: Literal["BALANCED", "PRICE", "DELIVERY", "WARRANTY"] = "BALANCED"
+    negotiation_rounds: int = Field(default=0, ge=0)
+    negotiation_consents: list[dict[str, Any]] = Field(default_factory=list)
+    confirmation_attempt: int = Field(default=0, ge=0)
+    confirmed_fact_digest: str | None = None
+    recommendation_version: int = Field(default=0, ge=0)
+    displayed_candidate_refs: dict[str, str] = Field(default_factory=dict)
     clarification_rounds: int = Field(default=0, ge=0, le=3)
     requirement: ProcurementRequirement = Field(default_factory=ProcurementRequirement)
     requirement_spec: RequirementSpec | None = None
@@ -447,6 +489,17 @@ class ProcurementRun(BaseModel):
     error: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_wait_reason(cls, value):
+        if isinstance(value, dict) and "wait_reason" not in value:
+            value = dict(value)
+            value["wait_reason"] = {
+                "WAITING_USER": RunWaitReason.MISSING_REQUIREMENT,
+                "WAITING_CONFIRMATION": RunWaitReason.WAITING_CONFIRMATION,
+            }.get(value.get("state"))
+        return value
 
     @model_validator(mode="after")
     def validate_state_history(self) -> ProcurementRun:
@@ -468,6 +521,7 @@ class ProcurementRun(BaseModel):
 
 
 class RunResponse(BaseModel):
+    message_route: MessageRouteResult | None = None
     run: ProcurementRun
     assistant_message: str
     suggested_replies: list[str] = Field(default_factory=list)

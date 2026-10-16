@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 from procure_pilot.agents.contracts import AgentKind
 from procure_pilot.config import Settings
+from procure_pilot.domain.conversation import RunWaitReason
 from procure_pilot.domain.models import RunResponse, RunState
 from procure_pilot.services.engine import (
     AgentStageResult,
@@ -22,9 +23,7 @@ from procure_pilot.services.engine import (
     ProcurementEngine,
 )
 
-WorkflowWaitReason = Literal[
-    "MISSING_REQUIREMENT", "READY_FOR_SOURCING", "WAITING_CONFIRMATION"
-]
+WorkflowWaitReason = RunWaitReason
 
 
 class ProcurementGraphState(TypedDict, total=False):
@@ -34,6 +33,8 @@ class ProcurementGraphState(TypedDict, total=False):
     tenant_id: str
     user_id: str
     message: str | None
+    message_id: str | None
+    confirmation_event: str
     scenario: str | None
     action_token: str | None
     expected_run_version: int
@@ -116,7 +117,11 @@ class LangGraphProcurementWorkflow:
         )
         builder.add_edge("wait_for_user", "accept_clarification")
         builder.add_edge("accept_clarification", "route_agent")
-        builder.add_edge("wait_for_confirmation", "prepare_confirmation")
+        builder.add_conditional_edges(
+            "wait_for_confirmation",
+            lambda state: "message" if state.get("confirmation_event") == "USER_MESSAGE" else "confirm",
+            {"message": "accept_clarification", "confirm": "prepare_confirmation"},
+        )
         builder.add_conditional_edges(
             "prepare_confirmation",
             self._next_confirmation_stage,
@@ -142,8 +147,9 @@ class LangGraphProcurementWorkflow:
         user_id: str,
         message: str,
         scenario: str | None = None,
+        run_id: str | None = None,
     ) -> RunResponse:
-        run_id = f"run_{uuid4().hex[:12]}"
+        run_id = run_id or f"run_{uuid4().hex[:12]}"
         config = self._config(tenant_id, run_id)
         output = await self.graph.ainvoke(
             ProcurementGraphState(
@@ -171,21 +177,25 @@ class LangGraphProcurementWorkflow:
         user_id: str,
         message: str,
         scenario: str | None = None,
+        message_id: str | None = None,
     ) -> RunResponse:
         async with self._lock(run_id):
             config = self._config(tenant_id, run_id)
+            run = self.engine.get(run_id, tenant_id=tenant_id, user_id=user_id)
+            expected_node = "wait_for_confirmation" if run.state == RunState.WAITING_CONFIRMATION else "wait_for_user"
             await self._assert_resumable(
                 config,
                 run_id=run_id,
                 tenant_id=tenant_id,
                 user_id=user_id,
-                expected_node="wait_for_user",
+                expected_node=expected_node,
             )
             output = await self.graph.ainvoke(
                 Command(
                     resume={
                         "event_type": "USER_MESSAGE",
                         "message": message,
+                        "message_id": message_id,
                         "scenario": scenario,
                     }
                 ),
@@ -231,6 +241,16 @@ class LangGraphProcurementWorkflow:
             output = await self.graph.ainvoke(None, config)
             return self._response(output)
 
+    async def rearm_requirement_review(self, *, run_id, tenant_id, user_id, message_id):
+        async with self._lock(run_id):
+            run = self.engine.get(run_id, tenant_id=tenant_id, user_id=user_id)
+            config = self._config(tenant_id, run_id)
+            _, snapshot = await self._assert_accessible_checkpoint(config, run_id=run_id, tenant_id=tenant_id, user_id=user_id)
+            if snapshot.next == ("accept_clarification",) and snapshot.values.get("message_id") == message_id:
+                response = RunResponse(run=run, assistant_message=run.messages[-1].content)
+                await self.graph.aupdate_state(config, self._response_update(response, node="route_after_run"), as_node="route_after_run")
+                await self.graph.ainvoke(None, config)
+
     async def confirm_run(
         self,
         *,
@@ -241,6 +261,15 @@ class LangGraphProcurementWorkflow:
     ) -> RunResponse:
         async with self._lock(run_id):
             config = self._config(tenant_id, run_id)
+            run = self.engine.get(run_id, tenant_id=tenant_id, user_id=user_id)
+            if run.draft:
+                return RunResponse(run=run, assistant_message=f"采购草稿 {run.draft.draft_id} 已存在，未重复创建。")
+            # Reject stale or invalid authorization before consuming the durable interrupt.
+            self.engine.harness.verify_action_token(action_token, run)
+            if run.state == RunState.REVALIDATING:
+                _, snapshot = await self._assert_accessible_checkpoint(config, run_id=run_id, tenant_id=tenant_id, user_id=user_id)
+                if snapshot.next and snapshot.next[0] in {"revalidate_quote", "revalidate_policy", "create_draft", "route_after_run"}:
+                    return self._response(await self.graph.ainvoke(None, config))
             await self._assert_resumable(
                 config,
                 run_id=run_id,
@@ -278,7 +307,7 @@ class LangGraphProcurementWorkflow:
             run_state=run.state,
             expected_run_version=int(values.get("expected_run_version", 0)),
             waiting_at=snapshot.next[0] if snapshot.next else None,
-            wait_reason=values.get("wait_reason"),
+            wait_reason=run.wait_reason.value if run.wait_reason else values.get("wait_reason"),
             last_node=values.get("last_node"),
         )
 
@@ -366,7 +395,7 @@ class LangGraphProcurementWorkflow:
         run_state = RunState(state["run_state"])
         reason: WorkflowWaitReason | None = None
         if run_state == RunState.WAITING_USER:
-            reason = "MISSING_REQUIREMENT"
+            reason = state.get("wait_reason") or "MISSING_REQUIREMENT"
         elif (
             run_state == RunState.COLLECTING
             and state.get("agent_stage")
@@ -379,7 +408,7 @@ class LangGraphProcurementWorkflow:
 
     @staticmethod
     def _next_after_run(state: ProcurementGraphState) -> str:
-        if state.get("wait_reason") == "MISSING_REQUIREMENT":
+        if state.get("wait_reason") in {"MISSING_REQUIREMENT", "FACTS_UNAVAILABLE", "CONSTRAINT_NEGOTIATION", "HISTORY_SELECTION", "REQUIREMENT_CONFIRMATION", "REFERENCE_UNAVAILABLE", "REFERENCE_INFORMATION"}:
             return "wait_for_user"
         if state.get("wait_reason") == "READY_FOR_SOURCING":
             return "route_agent"
@@ -391,7 +420,7 @@ class LangGraphProcurementWorkflow:
     def _wait_for_user(state: ProcurementGraphState) -> dict[str, Any]:
         resumed = interrupt(
             {
-                "type": "MISSING_REQUIREMENT",
+                "type": state.get("wait_reason") or "MISSING_REQUIREMENT",
                 "run_id": state["run_id"],
                 "expected_run_version": state["expected_run_version"],
             }
@@ -406,6 +435,7 @@ class LangGraphProcurementWorkflow:
             raise ValueError("Scenario must be a string")
         return {
             "message": message,
+            "message_id": resumed.get("message_id"),
             "scenario": scenario,
             "last_node": "wait_for_user",
         }
@@ -417,6 +447,7 @@ class LangGraphProcurementWorkflow:
             tenant_id=state["tenant_id"],
             user_id=state["user_id"],
             message=state["message"] or "",
+            message_id=state.get("message_id"),
             scenario=state.get("scenario"),
         )
         update = {**self._run_update(run, node="accept_clarification"), "agent_stage": None}
@@ -432,12 +463,21 @@ class LangGraphProcurementWorkflow:
                 "expected_run_version": state["expected_run_version"],
             }
         )
+        if isinstance(resumed, dict) and resumed.get("event_type") == "USER_MESSAGE":
+            message = resumed.get("message")
+            if not isinstance(message, str) or not message.strip():
+                raise ValueError("Requirement update cannot be empty")
+            return {
+                "message": message, "message_id": resumed.get("message_id"),
+                "scenario": resumed.get("scenario"), "confirmation_event": "USER_MESSAGE",
+                "last_node": "wait_for_confirmation",
+            }
         if not isinstance(resumed, dict) or resumed.get("event_type") != "CONFIRM":
             raise ValueError("Confirmation checkpoint requires a CONFIRM event")
         action_token = resumed.get("action_token")
         if not isinstance(action_token, str) or not action_token:
             raise ValueError("Confirmation requires an action token")
-        return {"action_token": action_token, "last_node": "wait_for_confirmation"}
+        return {"action_token": action_token, "confirmation_event": "CONFIRM", "last_node": "wait_for_confirmation"}
 
     async def _prepare_confirmation(self, state: ProcurementGraphState) -> dict[str, Any]:
         self._inject_fault("prepare_confirmation", state)
@@ -584,7 +624,7 @@ class LangGraphProcurementWorkflow:
             "run_state": response.run.state.value,
             "assistant_message": response.assistant_message,
             "suggested_replies": response.suggested_replies,
-            "wait_reason": None,
+            "wait_reason": response.run.wait_reason.value if response.run.wait_reason else None,
             "last_node": node,
         }
 
@@ -595,7 +635,7 @@ class LangGraphProcurementWorkflow:
             "action_token": None,
             "expected_run_version": run.state_version,
             "run_state": run.state.value,
-            "wait_reason": None,
+            "wait_reason": run.wait_reason.value if run.wait_reason else None,
             "last_node": node,
         }
 
@@ -653,7 +693,13 @@ class ProcurementWorkflowRuntime:
 
     def __init__(self, engine: ProcurementEngine, settings: Settings) -> None:
         self.engine = engine
+        self._interaction_locks: dict[str, asyncio.Lock] = {}
+        from procure_pilot.services.dialogue import ProcurementDialogue
+        self.dialogue = ProcurementDialogue(engine)
         self.settings = settings
+        from procure_pilot.services.message_routing import ProcurementMessageRouter
+
+        self.message_router = ProcurementMessageRouter(engine, self)
         self._open_lock = asyncio.Lock()
         self._postgres_context: AbstractAsyncContextManager | None = None
         self.workflow: LangGraphProcurementWorkflow | LegacyProcurementWorkflow | None = None
@@ -716,15 +762,160 @@ class ProcurementWorkflowRuntime:
         assert self.workflow is not None
         return await self.workflow.start_run(**kwargs)
 
+    async def route_message(self, **kwargs) -> RunResponse:
+        await self.open()
+        return await self.message_router.route(**kwargs)
+
     async def continue_run(self, **kwargs) -> RunResponse:
         await self.open()
         assert self.workflow is not None
-        return await self.workflow.continue_run(**kwargs)
+        async with self._interaction_locks.setdefault(kwargs["run_id"], asyncio.Lock()):
+            run = self.engine.get(kwargs["run_id"], tenant_id=kwargs["tenant_id"], user_id=kwargs["user_id"])
+            from procure_pilot.services.requirement_resolution import is_confirmation_message
+            if run.wait_reason == RunWaitReason.REQUIREMENT_CONFIRMATION and is_confirmation_message(kwargs["message"]):
+                draft = run.resolution_draft
+                receipt = next((r for r in run.message_routes if r.message_id == kwargs.get("message_id")), None)
+                return await self._confirm_requirements_locked(run_id=run.run_id, tenant_id=run.tenant_id, user_id=run.user_id,
+                    request_id=receipt.request_id if receipt else f"confirm_{uuid4().hex}", draft_id=draft.draft_id,
+                    draft_version=draft.version, content_hash=draft.content_hash, message_id=kwargs.get("message_id"), message=kwargs["message"])
+            pending = next((c for c in run.requirement_confirmations if c.message_id == kwargs.get("message_id")), None)
+            if pending is not None:
+                return await self._confirm_requirements_locked(run_id=run.run_id, tenant_id=run.tenant_id, user_id=run.user_id,
+                    request_id=pending.request_id, draft_id=pending.draft_id, draft_version=pending.draft_version,
+                    content_hash=pending.content_hash, message_id=pending.message_id, message=kwargs["message"])
+            response = await self.dialogue.handle(**kwargs)
+            if response is not None:
+                return response
+            return await self.workflow.continue_run(**kwargs)
+
+    async def confirm_requirements(self, **kwargs) -> RunResponse:
+        await self.open()
+        async with self._interaction_locks.setdefault(kwargs["run_id"], asyncio.Lock()):
+            return await self._confirm_requirements_locked(**kwargs)
+
+    async def _confirm_requirements_locked(
+        self,
+        *,
+        run_id,
+        tenant_id,
+        user_id,
+        request_id,
+        draft_id,
+        draft_version,
+        content_hash,
+        message_id=None,
+        message="确认需求并开始寻源",
+    ) -> RunResponse:
+        from procure_pilot.domain.references import RequirementConfirmation
+
+        assert self.workflow is not None
+        run = self.engine.get(run_id, tenant_id=tenant_id, user_id=user_id)
+        receipt = next(
+            (r for r in run.requirement_confirmations if r.request_id == request_id), None
+        )
+        if receipt:
+            if (receipt.draft_id, receipt.draft_version, receipt.content_hash) != (
+                draft_id,
+                draft_version,
+                content_hash,
+            ):
+                raise ValueError(
+                    "Requirement confirmation request_id was already used for different input"
+                )
+            if receipt.status == "INVALIDATED":
+                raise ValueError(
+                    "Requirement confirmation was invalidated; review the current draft"
+                )
+            accepted = any(m.message_id == receipt.message_id for m in run.messages)
+            if not accepted:
+                try:
+                    await self.engine.requirement_resolution.verify_confirmation(
+                        run,
+                        draft_id=draft_id,
+                        draft_version=draft_version,
+                        content_hash=content_hash,
+                        request_id=request_id,
+                    )
+                    self.engine.repository.save(run)
+                except (ValueError, PermissionError):
+                    receipt.status = "INVALIDATED"
+                    self.engine.repository.save(run)
+                    if hasattr(self.workflow, "rearm_requirement_review"):
+                        await self.workflow.rearm_requirement_review(
+                            run_id=run_id,
+                            tenant_id=tenant_id,
+                            user_id=user_id,
+                            message_id=receipt.message_id,
+                        )
+                    raise
+            if accepted and run.state in {
+                RunState.WAITING_CONFIRMATION,
+                RunState.WAITING_USER,
+                RunState.DRAFT_CREATED,
+                RunState.FAILED,
+            }:
+                receipt.status = "COMPLETED"
+                self.engine.repository.save(run)
+                return RunResponse(
+                    run=run,
+                    assistant_message=next(
+                        (m.content for m in reversed(run.messages) if m.role == "assistant"),
+                        "需求确认已处理。",
+                    ),
+                )
+            status = await self.workflow.status(run_id=run_id, tenant_id=tenant_id, user_id=user_id)
+            if accepted or (
+                status.waiting_at not in {"wait_for_user", "wait_for_confirmation", None}
+            ):
+                response = await self.workflow.resume_pending(
+                    run_id=run_id, tenant_id=tenant_id, user_id=user_id
+                )
+            else:
+                response = await self.workflow.continue_run(
+                    run_id=run_id,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    message=message,
+                    message_id=receipt.message_id,
+                )
+        else:
+            if run.state != RunState.WAITING_USER:
+                raise ValueError("Run is not waiting for requirement confirmation")
+            await self.engine.requirement_resolution.verify_confirmation(
+                run,
+                draft_id=draft_id,
+                draft_version=draft_version,
+                content_hash=content_hash,
+                request_id=request_id,
+            )
+            receipt = RequirementConfirmation(
+                request_id=request_id,
+                draft_id=draft_id,
+                draft_version=draft_version,
+                content_hash=content_hash,
+                message_id=message_id or f"msg_{uuid4().hex[:12]}",
+            )
+            run.requirement_confirmations.append(receipt)
+            self.engine.repository.save(run)
+            response = await self.workflow.continue_run(
+                run_id=run_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                message=message,
+                message_id=receipt.message_id,
+            )
+        run = self.engine.get(run_id, tenant_id=tenant_id, user_id=user_id)
+        receipt = next(r for r in run.requirement_confirmations if r.request_id == request_id)
+        receipt.status = "COMPLETED"
+        self.engine.repository.save(run)
+        response.run = run
+        return response
 
     async def confirm_run(self, **kwargs) -> RunResponse:
         await self.open()
         assert self.workflow is not None
-        return await self.workflow.confirm_run(**kwargs)
+        async with self._interaction_locks.setdefault(kwargs["run_id"], asyncio.Lock()):
+            return await self.workflow.confirm_run(**kwargs)
 
     async def resume_pending(self, **kwargs) -> RunResponse:
         await self.open()

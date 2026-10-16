@@ -210,7 +210,7 @@ async def test_engine_passes_full_multi_turn_history_to_planner():
     assert planner.turns[0] == ["帮我采购电脑"]
     assert len(planner.turns[1]) == 3
     assert planner.turns[1][0] == "帮我采购电脑"
-    assert "我还需要确认" in planner.turns[1][1]
+    assert "请一次补充以下信息" in planner.turns[1][1]
     assert planner.turns[1][2].startswith("20台")
 
 
@@ -472,9 +472,9 @@ async def test_live_shape_agent_reads_leave_commit_capacity_for_draft_creation()
     assert completed.run.state.value == "DRAFT_CREATED"
     assert completed.run.draft is not None
     assert completed.run.execution_usage.agent_read_tool_calls == 9
-    assert completed.run.execution_usage.workflow_read_tool_calls == 1
-    assert completed.run.execution_usage.commit_tool_calls == 3
-    assert completed.run.execution_usage.tool_calls == 13
+    assert completed.run.execution_usage.workflow_read_tool_calls == 19
+    assert completed.run.execution_usage.commit_tool_calls == 6
+    assert completed.run.execution_usage.tool_calls == 34
     assert completed.run.execution_usage.reserved_commit_tool_calls == 0
 
 

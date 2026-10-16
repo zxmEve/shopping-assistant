@@ -26,7 +26,7 @@ async def test_active_clarification_then_recommendation():
         message="给印尼研发团队采购20台开发笔记本，单台预算8000元，两周内到货",
     )
     assert first.run.state == RunState.WAITING_USER
-    assert len(first.run.trace[-1].detail["questions"]) <= 3
+    assert len(first.run.trace[-1].detail["questions"]) == 4
 
     second = await engine.continue_run(
         run_id=first.run.run_id,
@@ -41,7 +41,7 @@ async def test_active_clarification_then_recommendation():
 
 
 @pytest.mark.asyncio
-async def test_clarification_prioritizes_high_information_fields_and_defaults_to_few_questions():
+async def test_clarification_covers_all_missing_fields_and_only_asks_unanswered_items():
     engine = make_engine()
 
     broad = await engine.start(
@@ -51,8 +51,8 @@ async def test_clarification_prioritizes_high_information_fields_and_defaults_to
     )
     decision = broad.run.trace[-1].detail
     assert decision["missing_fields"][:3] == ["unit_budget", "quantity", "minimum_ram_gb"]
-    assert len(decision["questions"]) == 2
-    assert "信息价值排序" in decision["rationale"]
+    assert len(decision["questions"]) == 6
+    assert "全部必要条件" in decision["rationale"]
 
     one_missing = await engine.start(
         tenant_id="demo_cn",
@@ -65,7 +65,7 @@ async def test_clarification_prioritizes_high_information_fields_and_defaults_to
 
 
 @pytest.mark.asyncio
-async def test_authorized_company_standard_creates_visible_assumptions_and_stops_asking():
+async def test_authorized_company_standard_proposes_sources_and_waits_for_requirement_confirmation():
     engine = make_engine()
     first = await engine.start(
         tenant_id="demo_cn",
@@ -80,9 +80,13 @@ async def test_authorized_company_standard_creates_visible_assumptions_and_stops
         message="最低内存按公司标准决定",
     )
 
-    assert completed.run.state == RunState.WAITING_CONFIRMATION
-    assert completed.run.requirement.minimum_ram_gb == 32
-    assert any("用户授权按公司标准" in item for item in completed.run.requirement.assumptions)
+    assert completed.run.state == RunState.WAITING_USER
+    assert completed.run.wait_reason.value == "REQUIREMENT_CONFIRMATION"
+    assert completed.run.requirement.minimum_ram_gb is None
+    assert completed.run.resolution_draft.status == "READY"
+    ram = next(f for f in completed.run.resolution_draft.fields if f.field == "minimum_ram_gb")
+    assert ram.value == 32 and ram.source == "POLICY"
+
 
 
 @pytest.mark.asyncio

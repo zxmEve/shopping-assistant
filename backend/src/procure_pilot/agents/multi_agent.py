@@ -23,6 +23,7 @@ from procure_pilot.agents.tools import (
     AgentRuntimeContext,
     build_function_tools,
 )
+from procure_pilot.domain.conversation import MessageRouteProposal
 from procure_pilot.domain.models import (
     BudgetResource,
     Message,
@@ -61,6 +62,8 @@ class TwoAgentAdapter(Protocol):
         allowed_tools: tuple[str, ...],
     ) -> AdapterCall[AgentResult]: ...
 
+    async def dialogue(self, payload: dict, *, context: AgentRuntimeContext) -> AdapterCall: ...
+
     async def rank_candidates(
         self,
         envelope: AgentTaskEnvelope,
@@ -85,8 +88,8 @@ AGENT_TOOL_ALLOWLIST: dict[AgentKind, tuple[str, ...]] = {
 }
 
 AGENT_TRACE_ALLOWLIST: dict[AgentKind, frozenset[str]] = {
-    AgentKind.REQUIREMENT: frozenset(),
-    AgentKind.SOURCING: frozenset({"search_catalog"}),
+    AgentKind.REQUIREMENT: frozenset({"query_procurement_policy", "query_purchase_history"}),
+    AgentKind.SOURCING: frozenset({"search_catalog", "query_inventory", "estimate_delivery", "query_warranty"}),
 }
 
 
@@ -181,6 +184,8 @@ class TwoAgentPlanner:
         self, messages: list[Message], context: AgentRuntimeContext, kind: AgentKind
     ) -> AgentPlan:
         if kind == AgentKind.SOURCING:
+            from procure_pilot.services.requirement_references import assert_reference_ready
+            assert_reference_ready(context.run)
             spec = context.run.requirement_spec
             if (
                 spec is None
@@ -205,8 +210,8 @@ class TwoAgentPlanner:
                 if kind == AgentKind.REQUIREMENT
                 else "Search approved providers and propose real catalog offer IDs."
             ),
-            max_model_requests=2 if kind == AgentKind.REQUIREMENT else 4,
-            max_tool_calls=0 if kind == AgentKind.REQUIREMENT else 3,
+            max_model_requests=4,
+            max_tool_calls=4 if kind == AgentKind.REQUIREMENT else 21,
         )
         self._preflight(context)
         assembled = None
@@ -256,6 +261,7 @@ class TwoAgentPlanner:
                 context=assembled.payload if assembled is not None else None,
                 requirement_spec=context.run.requirement_spec,
                 source_message_id=(messages[-1].message_id if messages else None),
+                reference_request=context.run.reference_request,
                 requirement_schema=(
                     RequirementCompletenessPolicy.schema_snapshot()
                     if kind == AgentKind.REQUIREMENT
@@ -420,6 +426,27 @@ class TwoAgentPlanner:
         )
         return result
 
+    async def classify_message(self, payload: dict, *, context: AgentRuntimeContext) -> MessageRouteProposal:
+        method = getattr(self.adapter, "classify_message", None)
+        if method is None:
+            raise TwoAgentRuntimeError("Provider has no message routing capability")
+        self._has_reserved_first_global_request = False
+        call = await self._invoke_adapter(
+            context, AgentKind.REQUIREMENT,
+            lambda: method(payload, context=context),
+            max_requests=1, operation_name="requirement:route_message",
+        )
+        return MessageRouteProposal.model_validate(call.output)
+
+    async def dialogue(self, payload: dict, *, context: AgentRuntimeContext):
+        self._has_reserved_first_global_request = False
+        method = getattr(self.adapter, "dialogue", None)
+        if method is None:
+            raise TwoAgentRuntimeError("Adapter does not support dialogue")
+        call = await self._invoke_adapter(context, AgentKind.REQUIREMENT if payload["phase"] == "INTENT" else AgentKind.SOURCING,
+            lambda: method(payload, context=context), max_requests=1, operation_name=f"dialogue:{payload['phase']}")
+        return call.output
+
     async def rank_candidates(
         self,
         candidate_set: ValidatedCandidateSet,
@@ -549,8 +576,12 @@ class FixtureTwoAgentAdapter:
         allowed_tools: tuple[str, ...],
     ) -> AdapterCall[AgentResult]:
         if envelope.task.agent == AgentKind.REQUIREMENT:
-            if allowed_tools:
-                raise TwoAgentRuntimeError("Requirement Agent must have an empty tool allowlist")
+            request = context.run.reference_request
+            if request:
+                if request.policy or request.history:
+                    await self._invoke("query_procurement_policy", context, {}, allowed_tools)
+                if request.history:
+                    await self._invoke("query_purchase_history", context, {}, allowed_tools)
             if not context.run.messages or context.run.messages[-1].role != "user":
                 raise TwoAgentRuntimeError("Requirement Agent requires a current user message")
             from procure_pilot.services.requirement_validation import RequirementSpecService
@@ -562,6 +593,17 @@ class FixtureTwoAgentAdapter:
                 text=message.content,
                 base=context.run.requirement_spec,
             )
+            if request:
+                from procure_pilot.domain.requirements import RequirementReferenceBinding
+                values = list(context.run.reference_policy.values) if context.run.reference_policy else []
+                if request.history and context.run.reference_history:
+                    orders = context.run.reference_history.orders
+                    selected = next((o for o in orders if o.order_id == request.selected_order_id), None)
+                    if selected is None and request.latest_order and orders:
+                        selected = orders[0]
+                    if selected:
+                        values.extend(selected.fields)
+                spec.reference_bindings = [RequirementReferenceBinding(field=v.field, evidence_id=v.evidence_id) for v in values]
             return AdapterCall(
                 AgentResult(
                     task_id=envelope.task.task_id,
@@ -585,6 +627,9 @@ class FixtureTwoAgentAdapter:
             if not offers:
                 raise TwoAgentRuntimeError("Sourcing Agent found no verified offers")
             selected = min(offers, key=lambda item: (Decimal(item.unit_price), item.delivery_days))
+            from procure_pilot.services.sourcing import EvidenceRequirementPolicy
+            for name in EvidenceRequirementPolicy.tools(context.run):
+                await self._invoke(name, context, {"provider": selected.provider, "offer_id": selected.offer_id}, allowed_tools)
             proposal = AgentCandidateProposal(
                 provider=selected.provider,
                 offer_id=selected.offer_id,
@@ -602,6 +647,13 @@ class FixtureTwoAgentAdapter:
                 )
             )
         raise TwoAgentRuntimeError(f"Unsupported fixture Agent: {envelope.task.agent}")
+
+    async def dialogue(self, payload: dict, *, context: AgentRuntimeContext):
+        from procure_pilot.domain.conversation import DialogueSelection
+        from procure_pilot.services.dialogue import classify_turn_rules
+        if payload["phase"] == "INTENT":
+            return AdapterCall(classify_turn_rules(payload["message"]))
+        return AdapterCall(DialogueSelection(evidence_refs=[], option_ids=[o["option_id"] for o in payload.get("options", [])], rationale="依据服务端校验的证据处理本轮对话。"))
 
     async def rank_candidates(
         self,
@@ -636,6 +688,11 @@ class FixtureTwoAgentAdapter:
                 candidate_proposals=[proposal],
             )
         )
+
+    async def classify_message(self, payload: dict, *, context: AgentRuntimeContext):
+        from procure_pilot.services.message_routing import classify_message_rules
+
+        return AdapterCall(classify_message_rules(payload["message"], payload.get("category")))
 
     async def _invoke(
         self,

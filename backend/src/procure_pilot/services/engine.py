@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-import re
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from procure_pilot.agents.contracts import AgentKind
 from procure_pilot.agents.runtime import AgentPlanner, DeterministicAgentPlanner
 from procure_pilot.agents.tools import AgentCandidateProposal, AgentRuntimeContext
+from procure_pilot.domain.conversation import RunWaitReason
 from procure_pilot.domain.execution import AgentExecution, ExecutionStatus
 from procure_pilot.domain.knowledge import PolicyKnowledgeReviewRequired
 from procure_pilot.domain.models import (
@@ -23,7 +24,6 @@ from procure_pilot.domain.models import (
     ExecutionUsage,
     MatchDecisionType,
     Message,
-    Money,
     Offer,
     PolicyDecision,
     ProcurementDraft,
@@ -40,9 +40,14 @@ from procure_pilot.domain.models import (
     ValidatedCandidateSet,
     ValidatedCandidateView,
 )
-from procure_pilot.domain.requirements import RequirementSpec, RequirementStatus
+from procure_pilot.domain.requirements import (
+    MissingRequirementField,
+    RequirementSpec,
+    RequirementStatus,
+)
 from procure_pilot.fixtures.catalog import PROVIDERS, FixtureCatalogAdapter, ProviderError
 from procure_pilot.fixtures.enterprise import FixtureEnterpriseGateway
+from procure_pilot.fixtures.purchase_history import FixturePurchaseHistoryAdapter
 from procure_pilot.gateway.model_gateway import ModelGateway
 from procure_pilot.gateway.tool_gateway import (
     GatewayExecutionContext,
@@ -77,25 +82,25 @@ from procure_pilot.services.context import (
 from procure_pilot.services.costing import calculate_landed_cost
 from procure_pilot.services.knowledge import PolicyKnowledgeService
 from procure_pilot.services.memory_registry import MemoryRegistry
-from procure_pilot.services.requirement_validation import RequirementSpecService
-
-QUESTION_LABELS = {
-    "quantity": "需要采购多少台？",
-    "unit_budget": "单台预算是多少，币种是什么？",
-    "budget_tax_included": "单台预算是含税还是未税？",
-    "delivery_city": "具体交付城市是哪里？",
-    "minimum_ram_gb": "最低内存要求是多少？开发机建议明确为 32GB 或 64GB。",
-    "minimum_storage_gb": "最低存储容量要求是多少？",
-}
-
-QUESTION_INFORMATION_VALUE = {
-    "unit_budget": 1.00,
-    "quantity": 0.95,
-    "minimum_ram_gb": 0.90,
-    "minimum_storage_gb": 0.88,
-    "delivery_city": 0.85,
-    "budget_tax_included": 0.80,
-}
+from procure_pilot.services.requirement_references import (
+    RequirementReferenceReader,
+    assert_reference_ready,
+    reference_pending,
+    update_reference_request,
+)
+from procure_pilot.services.requirement_resolution import RequirementResolutionService
+from procure_pilot.services.requirement_validation import (
+    REQUIRED_FIELD_POLICY,
+    RequirementCompletenessPolicy,
+    RequirementSpecService,
+)
+from procure_pilot.services.sourcing import (
+    ConstraintNegotiationService,
+    EvidenceRequirementPolicy,
+    SourcingEvidenceService,
+    current_facts,
+    fact_digest,
+)
 
 MAX_CLARIFICATION_ROUNDS = 3
 class AgentStageResult(BaseModel):
@@ -142,6 +147,7 @@ class ProcurementEngine:
         budget_limit_provider: BudgetLimitProvider | None = None,
         tool_gateway: ToolGateway | None = None,
         provider_costs_micro_usd: dict[str, int] | None = None,
+        purchase_history=None,
         model_max_reservation_micro_usd: int = 100_000,
         budget_reservation_ttl_seconds: int = 300,
         max_agent_utility_regret: float = 0.05,
@@ -165,11 +171,14 @@ class ProcurementEngine:
         self.budget_service = budget_service or InMemoryBudgetService(
             InMemoryBudgetRepository(), limit_provider=self.budget_limit_provider
         )
+        self.purchase_history = purchase_history or FixturePurchaseHistoryAdapter()
+        self.reference_reader = RequirementReferenceReader(enterprise, self.purchase_history, lambda: self.knowledge_service)
         self.tool_gateway = tool_gateway or ToolGateway(
             registry=build_default_tool_registry(
                 catalog=catalog,
                 enterprise=enterprise,
                 provider_costs_micro_usd=provider_costs_micro_usd,
+                reference_reader=self.reference_reader,
             ),
             harness=harness,
             execution_repository=self.execution_repository,
@@ -189,7 +198,11 @@ class ProcurementEngine:
             memory_registry=memory_registry,
         )
         self._run_locks: dict[str, asyncio.Lock] = {}
+        self.tool_gateway.reference_reader = self.reference_reader
         self.requirement_specs = RequirementSpecService()
+        self.requirement_resolution = RequirementResolutionService(self)
+        self.sourcing_evidence = SourcingEvidenceService(self)
+        self.negotiation = ConstraintNegotiationService(self.sourcing_evidence)
         if not 0 <= max_agent_utility_regret <= 1:
             raise ValueError("max_agent_utility_regret must be between 0 and 1")
         self.max_agent_utility_regret = max_agent_utility_regret
@@ -226,9 +239,7 @@ class ProcurementEngine:
         self.harness.initialize_run(run)
         self.harness.trace(run, actor="Application Runtime", kind="STATE", name="run.started")
         run.messages.append(Message(role="user", content=message))
-        self._merge_requirement(run.requirement, message)
-        if "按公司标准" in message or "按团队标准" in message:
-            self._apply_authorized_defaults(run.requirement)
+        self._merge_requirement(run, message)
         self.repository.save(run)
         return run
 
@@ -240,6 +251,7 @@ class ProcurementEngine:
         user_id: str,
         message: str,
         scenario: str | None = None,
+        message_id: str | None = None,
     ) -> ProcurementRun:
         """Persist one clarification before an Agent node; duplicate state is rejected."""
         run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
@@ -248,24 +260,46 @@ class ProcurementEngine:
             run.state == RunState.COLLECTING
             and run.messages
             and run.messages[-1].role == "user"
-            and run.messages[-1].content == message
+            and (run.messages[-1].message_id == message_id if message_id else run.messages[-1].content == message)
         ):
             return run
-        if run.state not in {RunState.WAITING_USER, RunState.COLLECTING}:
+        if run.state not in {RunState.WAITING_USER, RunState.COLLECTING, RunState.WAITING_CONFIRMATION}:
             raise ValueError(f"Run cannot accept clarification in state {run.state}")
-        if run.state == RunState.WAITING_USER:
+        from procure_pilot.services.dialogue import apply_option, pending_option
+        option = pending_option(run, message_id)
+        confirmation = next((c for c in run.requirement_confirmations if c.message_id == message_id and c.status == "DISPATCHING"), None)
+        if run.state in {RunState.WAITING_USER, RunState.WAITING_CONFIRMATION}:
             self.harness.transition(run, RunState.COLLECTING, reason="user supplied clarification")
-        run.messages.append(Message(role="user", content=message))
+        self._invalidate_recommendation(run)
+        run.messages.append(Message(**({"message_id": message_id} if message_id else {}), role="user", content=message))
         run.requirement.version += 1
         if scenario is not None:
             run.scenario = scenario
-        self._merge_requirement(run.requirement, message)
-        if "按公司标准" in message or "按团队标准" in message:
-            self._apply_authorized_defaults(run.requirement)
+        if confirmation is not None:
+            self.requirement_resolution.apply_confirmation(run, confirmation, run.messages[-1])
+        elif option is not None:
+            apply_option(self, run, option, run.messages[-1])
+        else:
+            self._merge_requirement(run, message)
         self.repository.save(run)
         return run
 
+    @staticmethod
+    def _invalidate_recommendation(run: ProcurementRun) -> None:
+        run.recommendation = None
+        run.validated_candidate_set = None
+        run.sourcing_ranking = None
+        run.quote_snapshot = None
+        run.revalidation_changes = []
+        run.action_token = None
+        run.confirmed_fact_digest = None
+        run.candidate_pool = []
+        run.displayed_candidate_refs = {}
+        run.negotiation_options = []
+
     def required_agent_kind(self, run: ProcurementRun) -> AgentKind:
+        if reference_pending(run):
+            return AgentKind.REQUIREMENT
         if getattr(self.planner, "requires_requirement_stage", False):
             latest_user = next(
                 (item for item in reversed(run.messages) if item.role == "user"), None
@@ -277,7 +311,7 @@ class ProcurementEngine:
             if run.requirement_spec.status == RequirementStatus.READY_FOR_SOURCING:
                 return AgentKind.SOURCING
             return AgentKind.REQUIREMENT
-        clarification = self._clarification(run.requirement, run.clarification_rounds)
+        clarification = self._clarification(run.requirement, run.clarification_rounds, run.requirement_spec)
         return AgentKind.SOURCING if clarification.ready_for_sourcing else AgentKind.REQUIREMENT
 
     async def execute_agent_node(
@@ -377,7 +411,7 @@ class ProcurementEngine:
         agent_stage: AgentStageResult,
     ) -> RunResponse:
         run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
-        if run.state != RunState.COLLECTING:
+        if run.state not in {RunState.COLLECTING, RunState.SOURCING, RunState.REVIEWING}:
             assistant_message = next(
                 (item.content for item in reversed(run.messages) if item.role == "assistant"),
                 run.error or "任务已恢复到持久化业务状态。",
@@ -406,11 +440,9 @@ class ProcurementEngine:
                 response = self._complete_requirement_stage(run, agent_stage)
                 self.repository.save(run)
                 return response
-            response = await self._advance(
-                run,
-                scenario=run.scenario,
-                agent_context=context,
-            )
+            response = await (self._source_and_recommend(run, scenario=run.scenario, agent_context=context)
+                if run.state in {RunState.SOURCING, RunState.REVIEWING}
+                else self._advance(run, scenario=run.scenario, agent_context=context))
         except HarnessBudgetExceeded as exc:
             response = self._budget_stopped(run, exc)
         self.repository.save(run)
@@ -434,21 +466,44 @@ class ProcurementEngine:
         ):
             validated = run.requirement_spec
         else:
-            validated = self.requirement_specs.validate(
-                proposed,
-                message_id=latest.message_id,
-                text=latest.content,
-                base=run.requirement_spec,
-            )
-            baseline = self.enterprise.policy["developer_laptop_baseline"]
-            validated = self.requirement_specs.apply_authorized_defaults(
-                validated,
-                minimum_ram_gb=int(baseline["minimum_ram_gb"]),
-                minimum_storage_gb=1024,
-            )
+            try:
+                validated = self.requirement_specs.validate(
+                    proposed,
+                    message_id=latest.message_id,
+                    text=latest.content,
+                    base=run.requirement_spec,
+                )
+            except ValueError as exc:
+                # Keep the evidence boundary strict. If a provider rewrites quotes,
+                # offsets, IDs, or versions, discard its proposal and rebuild only
+                # facts that deterministic parsers can prove from the current input.
+                self.harness.trace(
+                    run,
+                    actor="Requirement Validation Service",
+                    kind="SERVICE",
+                    name="requirement_spec.agent_output_rejected",
+                    status="DEGRADED",
+                    detail={"error_type": type(exc).__name__, "reason": str(exc)},
+                )
+                fallback = self.requirement_specs.propose(
+                    run_id=run.run_id,
+                    message_id=latest.message_id,
+                    text=latest.content,
+                    base=run.requirement_spec,
+                )
+                validated = self.requirement_specs.validate(
+                    fallback,
+                    message_id=latest.message_id,
+                    text=latest.content,
+                    base=run.requirement_spec,
+                )
             run.requirement_spec = validated
             run.requirement_spec_history.append(validated.model_copy(deep=True))
             run.requirement = self.requirement_specs.to_procurement_requirement(validated)
+        run.processed_message_id = latest.message_id
+        referenced = self.requirement_resolution.wait_response(run)
+        if referenced is not None:
+            return referenced
         self.harness.trace(
             run,
             actor="Requirement Validation Service",
@@ -473,8 +528,20 @@ class ProcurementEngine:
             return RunResponse(run=run, assistant_message=run.error)
         run.clarification_rounds += 1
         self.harness.transition(run, RunState.WAITING_USER, reason="RequirementSpec needs clarification")
-        question = validated.next_question.text if validated.next_question else "请补充必要采购条件。"
-        message = f"为了避免错配，我还需要确认：{question}"
+        questions = validated.clarification_plan.questions
+        message = "为了避免错配，请一次补充以下信息，也可以先回答其中几项：\n" + "\n".join(
+            f"{index}. {question.text}" for index, question in enumerate(questions, start=1)
+        )
+        self.harness.trace(
+            run, actor="Requirement Validation Service", kind="SERVICE",
+            name="clarification.decision",
+            detail={
+                "missing_fields": [item.field for item in validated.missing_fields],
+                "questions": [item.text for item in questions],
+                "covered_fields": validated.clarification_plan.covered_fields,
+                "repaired_question_count": validated.clarification_plan.repaired_question_count,
+            },
+        )
         run.messages.append(Message(role="assistant", content=message))
         return RunResponse(run=run, assistant_message=message)
 
@@ -499,8 +566,11 @@ class ProcurementEngine:
             raise ValueError("Run is not waiting for confirmation")
         try:
             self.harness.verify_action_token(action_token, run)
+            if not run.recalled_offers:
+                run.recalled_offers = [c.offer for c in (run.recommendation.best_overall, run.recommendation.lowest_cost, run.recommendation.fastest_delivery)]
             self.harness.assert_budget_available(run, BudgetResource.STATE_TRANSITIONS, 3)
-            self.harness.reserve_commit_tool_calls(run, 3)
+            self.harness.reserve_commit_tool_calls(run, 3 + len(EvidenceRequirementPolicy.tools(run)))
+            run.confirmation_attempt += 1
             self.harness.transition(
                 run,
                 RunState.REVALIDATING,
@@ -537,7 +607,7 @@ class ProcurementEngine:
             "quote_fingerprint": run.quote_snapshot.fingerprint if run.quote_snapshot else None,
         }
         fingerprint = self._fingerprint(arguments)
-        key = f"tool:{run.run_id}:revalidate_quote:{fingerprint}"
+        key = f"tool:{run.run_id}:revalidate_quote:{fingerprint}:{run.confirmation_attempt}"
         try:
             refreshed_offer = await self.tool_gateway.invoke(
                 tool_name="revalidate_quote",
@@ -576,6 +646,46 @@ class ProcurementEngine:
                 outcome="WAITING_CONFIRMATION", assistant_message=message
             )
         refreshed_offer = Offer.model_validate(refreshed_offer)
+        try:
+            await self.sourcing_evidence.enrich(run, [refreshed_offer], force=True, commit=True)
+        except (HarnessBudgetExceeded, ProviderError, ToolTimeoutError, CircuitOpenError):
+            self._restore_waiting_confirmation(run, reason="fact refresh unavailable safely")
+            message = "必需事实复核暂不可用，未创建草稿。请稍后重试。"
+            run.messages.append(Message(role="assistant", content=message))
+            self.repository.save(run)
+            return ConfirmationStageResult(outcome="WAITING_CONFIRMATION", assistant_message=message)
+        assessment = self.sourcing_evidence.assess(run, refreshed_offer, self.sourcing_evidence.policy(run, refreshed_offer))
+        if not self.sourcing_evidence.passes(assessment):
+            self._restore_waiting_confirmation(run, reason="fresh facts do not satisfy confirmed constraints")
+            run.action_token = None
+            message = "最新库存、交期、保修或规格未通过校验，未创建草稿。请调整需求或发送重试查询，重新寻源。"
+            run.messages.append(Message(role="assistant", content=message))
+            self.repository.save(run)
+            return ConfirmationStageResult(outcome="WAITING_CONFIRMATION", assistant_message=message)
+        digest = fact_digest(run, refreshed_offer)
+        if run.confirmed_fact_digest != digest:
+            run.confirmed_fact_digest = digest
+            run.recommendation_version += 1
+            run.revalidation_changes = [RevalidationChange(field="supplier_facts", previous="原推荐事实", current="已刷新库存、交期或保修，请核对")]
+            candidate = run.recommendation.best_overall
+            facts = current_facts(run, refreshed_offer)
+            refreshed_offer.stock = facts["INVENTORY"].value["stock"]
+            refreshed_offer.variant.warranty_months = facts["WARRANTY"].value["months"]
+            if "DELIVERY" in facts and facts["DELIVERY"].value:
+                refreshed_offer.delivery_days = facts["DELIVERY"].value["days"]
+            candidate.offer = refreshed_offer
+            candidate.cost = self._calculate_cost(refreshed_offer, run.requirement)
+            candidate.evidence_refs = list(dict.fromkeys([*candidate.evidence_refs, *(r for fact in facts.values() for r in fact.evidence_refs)]))
+            run.quote_snapshot = self._quote_snapshot(refreshed_offer)
+            self._restore_waiting_confirmation(run, reason="supplier facts changed; fresh confirmation required")
+            run.action_token = self.harness.issue_action_token(run)
+            message = "供应商事实已变化，未创建草稿。请核对最新库存、交期和保修后重新确认。"
+            run.messages.append(Message(role="assistant", content=message))
+            self.repository.save(run)
+            return ConfirmationStageResult(outcome="WAITING_CONFIRMATION", assistant_message=message)
+        run.recommendation.best_overall.evidence_refs = list(dict.fromkeys([
+            *run.recommendation.best_overall.evidence_refs,
+            *(ref for fact in current_facts(run, refreshed_offer).values() for ref in fact.evidence_refs)]))
         self.repository.save(run)
         return ConfirmationStageResult(
             outcome="READY_FOR_POLICY", refreshed_offer=refreshed_offer
@@ -677,6 +787,7 @@ class ProcurementEngine:
             )
             run.recommendation.best_overall = candidate
             run.quote_snapshot = refreshed_snapshot
+            run.recommendation_version += 1
             run.action_token = self.harness.issue_action_token(run)
             self.harness.transition(
                 run,
@@ -733,6 +844,15 @@ class ProcurementEngine:
             )
         if run.state != RunState.REVALIDATING:
             raise ValueError("Run is not ready for draft creation")
+        assessment = self.sourcing_evidence.assess(run, candidate.offer, self.sourcing_evidence.policy(run, candidate.offer))
+        same_candidate = run.recommendation and (candidate.offer.provider, candidate.offer.offer_id) == (run.recommendation.best_overall.offer.provider, run.recommendation.best_overall.offer.offer_id)
+        if not same_candidate or not self.sourcing_evidence.passes(assessment) or fact_digest(run, candidate.offer) != run.confirmed_fact_digest:
+            self._restore_waiting_confirmation(run, reason="write checkpoint facts expired or candidate changed")
+            run.action_token = None
+            message = "确认检查点的事实已过期或条件已变化，未创建草稿。请重新查询并确认。"
+            run.messages.append(Message(role="assistant", content=message))
+            self.repository.save(run)
+            return ConfirmationStageResult(outcome="WAITING_CONFIRMATION", assistant_message=message)
         employee = self.enterprise.identity(run.tenant_id, run.user_id)
         idempotency_key = hashlib.sha256(
             f"{run.run_id}:{candidate.offer.offer_id}:{run.requirement.version}".encode()
@@ -807,6 +927,7 @@ class ProcurementEngine:
         candidate.evidence_refs = list(
             dict.fromkeys(
                 [
+                    *original.evidence_refs,
                     *offer.match_decision.evidence_refs,
                     offer.evidence.evidence_id,
                     *policy_payload["evidence_refs"],
@@ -861,9 +982,7 @@ class ProcurementEngine:
         try:
             self.harness.trace(run, actor="Application Runtime", kind="STATE", name="run.started")
             run.messages.append(Message(role="user", content=message))
-            self._merge_requirement(run.requirement, message)
-            if "按公司标准" in message or "按团队标准" in message:
-                self._apply_authorized_defaults(run.requirement)
+            self._merge_requirement(run, message)
             if getattr(self.planner, "requires_requirement_stage", False):
                 requirement_context = await self._plan(run, expected_kind=AgentKind.REQUIREMENT)
                 stage = AgentStageResult(
@@ -883,7 +1002,7 @@ class ProcurementEngine:
                             run, scenario=run.scenario, agent_context=agent_context
                         )
             else:
-                agent_context = await self._plan(run)
+                agent_context = await self._plan(run, expected_kind=self.required_agent_kind(run) if getattr(self.planner, "requires_requirement_stage", False) else None)
                 response = await self._advance(
                     run,
                     scenario=run.scenario,
@@ -902,25 +1021,16 @@ class ProcurementEngine:
         user_id: str,
         message: str,
         scenario: str | None = None,
+        message_id: str | None = None,
     ) -> RunResponse:
         run = self.repository.get(run_id, tenant_id=tenant_id, user_id=user_id)
         self._assert_owner(run, tenant_id, user_id)
-        if run.state not in {RunState.WAITING_USER, RunState.COLLECTING}:
+        if run.state not in {RunState.WAITING_USER, RunState.COLLECTING, RunState.WAITING_CONFIRMATION}:
             raise ValueError(f"Run cannot accept clarification in state {run.state}")
         try:
-            self.harness.transition(
-                run,
-                RunState.COLLECTING,
-                reason="user supplied clarification",
-            )
-            run.messages.append(Message(role="user", content=message))
-            run.requirement.version += 1
-            if scenario is not None:
-                run.scenario = scenario
-            self._merge_requirement(run.requirement, message)
-            if "按公司标准" in message or "按团队标准" in message:
-                self._apply_authorized_defaults(run.requirement)
-            if getattr(self.planner, "requires_requirement_stage", False):
+            run = self.accept_workflow_message(run_id=run_id, tenant_id=tenant_id, user_id=user_id,
+                message=message, message_id=message_id, scenario=scenario)
+            if getattr(self.planner, "requires_requirement_stage", False) and self.required_agent_kind(run) == AgentKind.REQUIREMENT:
                 requirement_context = await self._plan(run, expected_kind=AgentKind.REQUIREMENT)
                 stage = AgentStageResult(
                     execution_id="legacy-requirement",
@@ -939,7 +1049,7 @@ class ProcurementEngine:
                             run, scenario=run.scenario, agent_context=agent_context
                         )
             else:
-                agent_context = await self._plan(run)
+                agent_context = await self._plan(run, expected_kind=self.required_agent_kind(run) if getattr(self.planner, "requires_requirement_stage", False) else None)
                 response = await self._advance(
                     run,
                     scenario=run.scenario,
@@ -1025,7 +1135,13 @@ class ProcurementEngine:
         scenario: str | None,
         agent_context: AgentRuntimeContext | None = None,
     ) -> RunResponse:
-        clarification = self._clarification(run.requirement, run.clarification_rounds)
+        referenced = self.requirement_resolution.wait_response(run)
+        if referenced is not None:
+            return referenced
+        latest = next((item for item in reversed(run.messages) if item.role == "user"), None)
+        if latest and (run.requirement_spec is None or run.requirement_spec.source_message_id != latest.message_id):
+            self._merge_requirement(run, latest.content, force=True)
+        clarification = self._clarification(run.requirement, run.clarification_rounds, run.requirement_spec)
         if not clarification.ready_for_sourcing:
             if run.clarification_rounds >= MAX_CLARIFICATION_ROUNDS:
                 self.harness.trace(
@@ -1069,14 +1185,13 @@ class ProcurementEngine:
                 name="clarification.decision",
                 detail=clarification.model_dump(mode="json"),
             )
-            question_text = "为了避免错配和预算口径错误，我还需要确认：" + " ".join(
-                clarification.questions
+            question_text = "为了避免错配，请一次补充以下信息，也可以先回答其中几项：\n" + "\n".join(
+                f"{index}. {question}" for index, question in enumerate(clarification.questions, start=1)
             )
             run.messages.append(Message(role="assistant", content=question_text))
             return RunResponse(
                 run=run,
                 assistant_message=question_text,
-                suggested_replies=["预算含税，送到雅加达，最低 32GB 内存"],
             )
         self.harness.trace(
             run,
@@ -1098,17 +1213,15 @@ class ProcurementEngine:
         scenario: str | None,
         agent_context: AgentRuntimeContext | None = None,
     ) -> RunResponse:
-        self.harness.transition(
-            run,
-            RunState.SOURCING,
-            reason="minimum requirement is complete",
-        )
+        assert_reference_ready(run)
+        if run.state == RunState.COLLECTING:
+            self.harness.transition(run, RunState.SOURCING, reason="minimum requirement is complete")
         requirement = run.requirement
         safety_missing = [
             name
-            for name in ("quantity", "minimum_ram_gb", "minimum_storage_gb")
+            for name in ("quantity",)
             if getattr(requirement, name) is None
-        ]
+        ] + RequirementCompletenessPolicy.unresolved_configuration(requirement)
         if safety_missing:
             self.harness.transition(run, RunState.FAILED, reason="sourcing precondition failed")
             run.error = "寻源前置校验失败，仍缺少：" + "、".join(safety_missing)
@@ -1211,19 +1324,16 @@ class ProcurementEngine:
                 raise provider_result
             else:
                 raise provider_result
+        run.recalled_offers = offers
         if not offers:
-            self.harness.transition(
-                run,
-                RunState.FAILED,
-                reason="all catalog providers failed",
-            )
-            run.error = "所有商品来源均不可用"
-            return RunResponse(run=run, assistant_message=run.error)
+            return await self._wait_for_sourcing(run, offers=[], unavailable=bool(failed_providers))
+        offers = self.sourcing_evidence.shortlist(run, offers, preferred_refs={(p.provider, p.offer_id) for p in agent_context.proposed_candidates} if agent_context else ())
+        await self.sourcing_evidence.enrich(run, offers)
 
         candidates: list[Candidate] = []
         rejected = 0
         offer_map = {(offer.provider, offer.offer_id): offer for offer in offers}
-        policy_results = await self.tool_gateway.invoke(
+        await self.tool_gateway.invoke(
             tool_name="evaluate_policy_batch",
             arguments={
                 "offer_keys": [f"{offer.provider}/{offer.offer_id}" for offer in offers]
@@ -1236,7 +1346,22 @@ class ProcurementEngine:
                 runtime_data={"offers": offer_map},
             ),
         )
+        run.candidate_assessments = []
         for offer in offers:
+            policy_payload = self.sourcing_evidence.policy(run, offer)
+            assessment = self.sourcing_evidence.assess(run, offer, policy_payload)
+            run.candidate_assessments.append(assessment)
+            if not self.sourcing_evidence.passes(assessment):
+                rejected += 1
+                continue
+            facts = current_facts(run, offer)
+            offer = offer.model_copy(deep=True)
+            if "INVENTORY" in facts and facts["INVENTORY"].value:
+                offer.stock = facts["INVENTORY"].value["stock"]
+            if "DELIVERY" in facts and facts["DELIVERY"].value:
+                offer.delivery_days = facts["DELIVERY"].value["days"]
+            if "WARRANTY" in facts and facts["WARRANTY"].value:
+                offer.variant.warranty_months = facts["WARRANTY"].value["months"]
             cost = self._calculate_cost(offer, requirement)
             if requirement.unit_budget and offer.unit_price.amount > requirement.unit_budget.amount:
                 rejected += 1
@@ -1244,7 +1369,7 @@ class ProcurementEngine:
             if offer.variant.condition != requirement.condition:
                 rejected += 1
                 continue
-            policy_payload = policy_results[f"{offer.provider}/{offer.offer_id}"]
+            policy_payload = self.sourcing_evidence.policy(run, offer)
             policy_decision = PolicyDecision(policy_payload["decision"])
             if policy_decision == PolicyDecision.DENY:
                 rejected += 1
@@ -1255,7 +1380,7 @@ class ProcurementEngine:
             description = str(offer.evidence.fields.get("description", ""))
             if "ignore company policy" in description.lower():
                 warnings.append("检测到不可信网页指令，已作为商品数据隔离")
-            score = self._score(offer, cost, policy_decision)
+            score = self._preference_score(run, offer, cost, policy_decision)
             candidates.append(
                 Candidate(
                     offer=offer,
@@ -1269,6 +1394,7 @@ class ProcurementEngine:
                             [
                                 *offer.match_decision.evidence_refs,
                                 offer.evidence.evidence_id,
+                                *(ref for fact in facts.values() for ref in fact.evidence_refs),
                             *policy_payload["evidence_refs"],
                                 *policy_knowledge_refs,
                             ]
@@ -1279,19 +1405,12 @@ class ProcurementEngine:
                 )
             )
         if not candidates:
-            self.harness.transition(
-                run,
-                RunState.FAILED,
-                reason="no candidate passed budget, specification and policy gates",
-            )
-            run.error = "没有同时满足预算、规格和制度的候选"
-            return RunResponse(run=run, assistant_message=run.error)
+            unavailable = any(c.result == "UNKNOWN" for a in run.candidate_assessments for c in a.checks)
+            return await self._wait_for_sourcing(run, offers=offers, unavailable=unavailable)
 
-        self.harness.transition(
-            run,
-            RunState.REVIEWING,
-            reason="catalog evidence collected",
-        )
+        run.candidate_pool = candidates
+        if run.state == RunState.SOURCING:
+            self.harness.transition(run, RunState.REVIEWING, reason="catalog evidence collected")
         lowest = min(candidates, key=lambda item: item.cost.unconditional_total.amount)
         fastest = min(candidates, key=lambda item: (item.offer.delivery_days, -item.score))
         best = max(candidates, key=lambda item: item.score)
@@ -1299,37 +1418,7 @@ class ProcurementEngine:
         selection_source = "deterministic_score"
         selection_rationale = "按固定成本、交付、供应商状态和保修权重选择"
         selected_regret = 0.0
-        candidate_projection = [
-            ValidatedCandidateView(
-                provider=item.offer.provider,
-                offer_id=item.offer.offer_id,
-                brand=item.offer.product.brand,
-                model=item.offer.product.model,
-                landed_total=item.cost.unconditional_total,
-                delivery_days=item.offer.delivery_days,
-                policy_decision=item.policy_decision,
-                approval_route=item.approval_route,
-                evidence_refs=item.evidence_refs,
-                utility_score=item.score,
-            )
-            for item in candidates
-        ]
-        candidate_set_hash = self._fingerprint(
-            {"candidates": [item.model_dump(mode="json") for item in candidate_projection]}
-        )
-        validated_set = ValidatedCandidateSet(
-            run_id=run.run_id,
-            candidate_set_hash=candidate_set_hash,
-            requirement_spec_id=(run.requirement_spec.spec_id if run.requirement_spec else None),
-            requirement_spec_hash=(
-                self._fingerprint(run.requirement_spec.model_dump(mode="json"))
-                if run.requirement_spec
-                else None
-            ),
-            requirement_version=requirement.version,
-            policy_version=str(self.enterprise.policy["version"]),
-            candidates=candidate_projection,
-        )
+        validated_set = self._build_validated_set(run, candidates)
         run.validated_candidate_set = validated_set
         self.harness.trace(
             run,
@@ -1536,11 +1625,100 @@ class ProcurementEngine:
             RunState.WAITING_CONFIRMATION,
             reason="recommendation is ready for explicit confirmation",
         )
+        self._publish_recommendation(run)
         run.quote_snapshot = self._quote_snapshot(best.offer)
         run.revalidation_changes = []
         run.action_token = self.harness.issue_action_token(run)
         run.messages.append(Message(role="assistant", content=summary))
         return RunResponse(run=run, assistant_message=summary)
+
+    def _build_validated_set(self, run, candidates):
+        candidate_projection = [
+            ValidatedCandidateView(
+                provider=item.offer.provider,
+                offer_id=item.offer.offer_id,
+                brand=item.offer.product.brand,
+                model=item.offer.product.model,
+                landed_total=item.cost.unconditional_total,
+                delivery_days=item.offer.delivery_days,
+                policy_decision=item.policy_decision,
+                approval_route=item.approval_route,
+                evidence_refs=item.evidence_refs,
+                utility_score=item.score,
+                ram_gb=item.offer.variant.ram_gb, storage_gb=item.offer.variant.storage_gb,
+                warranty_months=item.offer.variant.warranty_months, stock=item.offer.stock,
+            )
+            for item in candidates
+        ]
+        candidate_set_hash = self._fingerprint(
+            {"candidates": [item.model_dump(mode="json") for item in candidate_projection]}
+        )
+        validated_set = ValidatedCandidateSet(
+            run_id=run.run_id,
+            candidate_set_hash=candidate_set_hash,
+            requirement_spec_id=(run.requirement_spec.spec_id if run.requirement_spec else None),
+            requirement_spec_hash=(
+                self._fingerprint(run.requirement_spec.model_dump(mode="json"))
+                if run.requirement_spec
+                else None
+            ),
+            requirement_version=run.requirement.version,
+            policy_version=str(self.enterprise.policy["version"]),
+            candidates=candidate_projection,
+        )
+        return validated_set
+
+    async def _wait_for_sourcing(self, run, *, offers, unavailable):
+        run.action_token = None
+        run.recommendation = None
+        existing = run.negotiation_options
+        reusable = existing and all(o.base_requirement_version == run.requirement.version and o.expires_at > datetime.now(UTC) for o in existing)
+        if unavailable:
+            run.negotiation_options = []
+        elif not reusable:
+            run.negotiation_options = self.negotiation.propose(run, offers)
+            if run.negotiation_options:
+                run.negotiation_rounds += 1
+                self.repository.save(run)
+        if run.negotiation_options:
+            # Sourcing may order and explain only the server-validated option IDs.
+            from procure_pilot.services.dialogue import model_dialogue
+            selection = await model_dialogue(self, run, "NEGOTIATE", {
+                "options": [o.model_dump(mode="json") for o in run.negotiation_options]}, message_id=f"negotiate:{run.requirement.version}")
+            if selection and selection.option_ids:
+                by_id = {o.option_id: o for o in run.negotiation_options}
+                if len(set(selection.option_ids)) == len(selection.option_ids) and set(selection.option_ids).issubset(by_id):
+                    run.negotiation_options = [by_id[i] for i in selection.option_ids]
+        self.harness.transition(run, RunState.WAITING_USER, reason="sourcing needs evidence or explicit constraint agreement")
+        run.wait_reason = RunWaitReason.FACTS_UNAVAILABLE if unavailable else RunWaitReason.CONSTRAINT_NEGOTIATION
+        if unavailable:
+            message = "必需事实尚未确认，暂不能推荐或创建草稿。可稍后发送“重试查询”；未知库存、交期或保修不会当作满足条件。"
+        elif run.negotiation_options:
+            lines = []
+            for i, option in enumerate(run.negotiation_options, 1):
+                labels = {"budget.maximum": "单台预算", "delivery_days": "交期（天）", "minimum_ram_gb": "最低内存（GB）", "minimum_storage_gb": "最低存储（GB）"}
+                lines.append(f"{i}. " + "；".join(f"{labels[a.field]} {a.previous} → {a.proposed}" for a in option.adjustments))
+            message = "当前条件下没有可推荐候选。以下方案已验证其他条件及企业制度，可明确接受一个方案后重新寻源：\n" + "\n".join(lines) + "\n接受方案只调整需求，不会创建草稿。"
+        else:
+            message = "召回范围内没有满足全部条件的候选，也没有可验证的调整方案。请修改采购条件或稍后重试；企业制度底线不能降低。"
+        run.messages.append(Message(role="assistant", content=message))
+        return RunResponse(run=run, assistant_message=message)
+
+    def _publish_recommendation(self, run):
+        run.recommendation_version += 1
+        rec = run.recommendation
+        run.displayed_candidate_refs = {str(i): f"{c.offer.provider}/{c.offer.offer_id}" for i, c in enumerate(
+            (rec.best_overall, rec.lowest_cost, rec.fastest_delivery), 1)}
+        run.confirmed_fact_digest = fact_digest(run, rec.best_overall.offer)
+
+    def _preference_score(self, run, offer, cost, decision):
+        if run.ranking_preference == "PRICE":
+            return round(1 / (1 + float(cost.unconditional_total.amount / Decimal("240000"))), 6)
+        if run.ranking_preference == "DELIVERY":
+            return round(1 / (1 + offer.delivery_days / 30), 6)
+        if run.ranking_preference == "WARRANTY":
+            return round(min(1, offer.variant.warranty_months / 120), 6)
+        return self._score(offer, cost, decision)
 
     async def _rank_validated_candidates(
         self,
@@ -1655,9 +1833,13 @@ class ProcurementEngine:
             run,
             operation,
         )
+        if reference_pending(run) and expected_kind != AgentKind.SOURCING:
+            if context.requirement_spec is None and plan.requirement_spec is None:
+                context.requirement_spec = run.requirement_spec
+            await self.requirement_resolution.ensure_lookups(run, context)
         context.proposed_candidates = plan.candidate_proposals
         context.decision_rationale = plan.rationale
-        context.requirement_spec = plan.requirement_spec
+        context.requirement_spec = plan.requirement_spec or context.requirement_spec
         self.harness.trace(
             run,
             actor="Application Runtime",
@@ -1714,90 +1896,59 @@ class ProcurementEngine:
                 reason=reason,
             )
 
-    @staticmethod
-    def _merge_requirement(requirement: ProcurementRequirement, text: str) -> None:
-        normalized = text.lower().replace("，", ",")
-        quantity_match = re.search(r"(\d+)\s*台", normalized)
-        if quantity_match:
-            requirement.quantity = int(quantity_match.group(1))
-        budget_match = re.search(r"(?:单台[^\d]{0,8}|预算[^\d]{0,8})(\d{3,6})", normalized)
-        if budget_match:
-            requirement.unit_budget = Money(amount=Decimal(budget_match.group(1)), currency="CNY")
-        if "含税" in normalized:
-            requirement.budget_tax_included = True
-        elif "未税" in normalized or "不含税" in normalized:
-            requirement.budget_tax_included = False
-        city_mapping = {
-            "雅加达": "Jakarta",
-            "jakarta": "Jakarta",
-            "上海": "Shanghai",
-            "深圳": "Shenzhen",
-        }
-        for marker, city in city_mapping.items():
-            if marker in normalized:
-                requirement.delivery_city = city
-                break
-        ram_match = re.search(r"(?:最低|至少)?\s*(16|32|64|128)\s*(?:g|gb)", normalized)
-        if ram_match:
-            requirement.minimum_ram_gb = int(ram_match.group(1))
-        storage_match = re.search(r"(?:最低|至少)?\s*(512|1024|2048)\s*(?:g|gb)", normalized)
-        if storage_match:
-            requirement.minimum_storage_gb = int(storage_match.group(1))
-        if "1t" in normalized or "1tb" in normalized:
-            requirement.minimum_storage_gb = 1024
-        if "两周" in normalized or "2周" in normalized:
-            requirement.delivery_days = 14
-        days_match = re.search(r"(\d+)\s*天", normalized)
-        if days_match:
-            requirement.delivery_days = int(days_match.group(1))
-        if requirement.minimum_storage_gb is None and (
-            "开发" in normalized or "docker" in normalized
-        ):
-            requirement.minimum_storage_gb = 1024
-            if "按公司标准补充 1TB 存储" not in requirement.assumptions:
-                requirement.assumptions.append("按公司标准补充 1TB 存储")
-
-    def _apply_authorized_defaults(self, requirement: ProcurementRequirement) -> None:
-        baseline = self.enterprise.policy["developer_laptop_baseline"]
-        if requirement.minimum_ram_gb is None:
-            requirement.minimum_ram_gb = int(baseline["minimum_ram_gb"])
-            requirement.assumptions.append(
-                f"用户授权按公司标准设置最低内存为 {requirement.minimum_ram_gb}GB"
+    def _merge_requirement(self, run: ProcurementRun, text: str, *, force: bool = False) -> None:
+        """Use the same schema and evidence policy in offline, fallback and legacy paths."""
+        latest = next((m for m in reversed(run.messages) if m.role == "user"), None)
+        if latest and not force:
+            update_reference_request(run, latest)
+        if getattr(self.planner, "requires_requirement_stage", False) and not force:
+            return
+        users = [item for item in run.messages if item.role == "user"]
+        # Reconstruct old snapshots that predate RequirementSpec from their real user messages.
+        pending = users if run.requirement_spec is None else users[-1:]
+        for message in pending:
+            if run.requirement_spec and run.requirement_spec.source_message_id == message.message_id:
+                continue
+            proposed = self.requirement_specs.propose(
+                run_id=run.run_id, message_id=message.message_id,
+                text=message.content, base=run.requirement_spec,
             )
-        if requirement.minimum_storage_gb is None:
-            requirement.minimum_storage_gb = 1024
-            requirement.assumptions.append("用户授权按公司标准设置最低存储为 1TB")
+            validated = self.requirement_specs.validate(
+                proposed, message_id=message.message_id,
+                text=message.content, base=run.requirement_spec,
+            )
+            run.requirement_spec = validated
+            run.requirement_spec_history.append(validated.model_copy(deep=True))
+            run.processed_message_id = message.message_id
+            run.requirement = self.requirement_specs.to_procurement_requirement(validated)
 
     @staticmethod
     def _clarification(
-        requirement: ProcurementRequirement, completed_rounds: int
+        requirement: ProcurementRequirement, completed_rounds: int,
+        spec: RequirementSpec | None = None,
     ) -> ClarificationDecision:
-        required = [
-            "quantity",
-            "unit_budget",
-            "budget_tax_included",
-            "delivery_city",
-            "minimum_ram_gb",
-            "minimum_storage_gb",
+        legacy_names = {"budget.maximum": "unit_budget", "budget.tax_included": "budget_tax_included"}
+        if spec is not None:
+            return ClarificationDecision(
+                missing_fields=[legacy_names.get(item.field, item.field) for item in spec.missing_fields],
+                questions=[item.text for item in spec.clarification_plan.questions],
+                ready_for_sourcing=spec.status == RequirementStatus.READY_FOR_SOURCING,
+                can_search_in_parallel=False,
+                rationale="一次覆盖当前全部必要条件和冲突，保留已明确的回答。",
+            )
+        # Compatibility for direct callers with a pre-Spec requirement; no separate field rules.
+        missing = [
+            item for item in REQUIRED_FIELD_POLICY
+            if getattr(requirement, legacy_names.get(item.path, item.path), None) is None
         ]
-        missing = sorted(
-            (field for field in required if getattr(requirement, field) is None),
-            key=lambda field: QUESTION_INFORMATION_VALUE[field],
-            reverse=True,
-        )
-        remaining_rounds = max(1, MAX_CLARIFICATION_ROUNDS - completed_rounds)
-        question_count = min(3, max(1, (len(missing) + remaining_rounds - 1) // remaining_rounds))
-        selected = missing[:question_count]
-        questions = [QUESTION_LABELS[field] for field in selected]
+        questions = RequirementCompletenessPolicy.clarification_plan([
+            MissingRequirementField(field=item.path, reason="必要信息缺失", impact=item.impact)
+            for item in missing
+        ], []).questions
         return ClarificationDecision(
-            missing_fields=missing,
-            questions=questions,
-            ready_for_sourcing=not missing,
-            can_search_in_parallel=True,
-            rationale=(
-                "按预算、数量、最低配置、交付地和税口径的信息价值排序；"
-                f"剩余 {remaining_rounds} 轮，本轮询问 {len(selected)} 个字段"
-            ),
+            missing_fields=[legacy_names.get(item.path, item.path) for item in missing],
+            questions=[item.text for item in questions], ready_for_sourcing=not missing,
+            can_search_in_parallel=False, rationale="一次覆盖当前全部必要条件。",
         )
 
     @staticmethod

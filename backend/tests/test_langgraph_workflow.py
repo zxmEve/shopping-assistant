@@ -155,6 +155,10 @@ async def test_langgraph_resume_is_tenant_scoped_and_stage_scoped():
         user_id="employee_001",
         message=CLARIFICATION,
     )
+    completed = await workflow.confirm_run(
+        run_id=started.run.run_id, tenant_id="demo_cn", user_id="employee_001",
+        action_token=continued.run.action_token,
+    )
     with pytest.raises(ValueError, match="cannot resume"):
         await workflow.continue_run(
             run_id=started.run.run_id,
@@ -162,7 +166,7 @@ async def test_langgraph_resume_is_tenant_scoped_and_stage_scoped():
             user_id="employee_001",
             message="重复补充",
         )
-    assert continued.run.state == RunState.WAITING_CONFIRMATION
+    assert completed.run.state == RunState.DRAFT_CREATED
 
 
 @pytest.mark.asyncio

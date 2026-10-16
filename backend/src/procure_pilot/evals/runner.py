@@ -106,9 +106,10 @@ async def _start(
 async def check_clarify_001() -> tuple[bool, str]:
     response = await _start(make_engine(), "帮我采购一批电脑")
     questions = response.run.trace[-1].detail.get("questions", [])
-    expected = ["单台预算是多少，币种是什么？", "需要采购多少台？"]
+    expected_fields = {"unit_budget", "quantity", "minimum_ram_gb", "minimum_storage_gb", "delivery_city", "budget_tax_included"}
+    missing = response.run.trace[-1].detail.get("missing_fields", [])
     return (
-        response.run.state == RunState.WAITING_USER and questions == expected,
+        response.run.state == RunState.WAITING_USER and set(missing) == expected_fields and len(questions) == len(missing),
         str(questions),
     )
 
@@ -155,7 +156,7 @@ async def check_clarify_005() -> tuple[bool, str]:
         )
         question_counts.append(response.assistant_message.count("？"))
     passed = (
-        all(count <= 3 for count in question_counts)
+        all(count == 6 for count in question_counts[:-1]) and question_counts[-1] == 0
         and response.run.state == RunState.FAILED
         and response.run.clarification_rounds == 3
     )
@@ -514,7 +515,7 @@ async def check_agent_001() -> tuple[bool, str]:
             "get_budget",
             "search_catalog",
             "calculate_landed_cost",
-            "evaluate_policy",
+            "evaluate_policy", "query_inventory", "estimate_delivery", "query_warranty", "query_procurement_policy", "query_purchase_history",
         }
         and not forbidden.intersection(tools)
         and search_schema.get("additionalProperties") is False

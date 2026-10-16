@@ -85,6 +85,19 @@ class StartRunRequest(BaseModel):
 class ContinueRunRequest(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     scenario: str | None = None
+    request_id: str | None = Field(default=None, min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    route_choice: Literal["CONTINUE", "NEW"] | None = None
+    expected_requirement_version: int | None = Field(default=None, gt=0)
+    expected_recommendation_version: int | None = Field(default=None, ge=0)
+    expected_resolution_draft_id: str | None = Field(default=None, max_length=80)
+    expected_resolution_version: int | None = Field(default=None, gt=0)
+
+
+class ConfirmRequirementsRequest(BaseModel):
+    request_id: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    draft_id: str = Field(min_length=1, max_length=80)
+    draft_version: int = Field(gt=0)
+    content_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
 
 
 class ConfirmRunRequest(BaseModel):
@@ -875,13 +888,21 @@ def create_app(
         request: ContinueRunRequest,
         context: Annotated[RequestContext, Depends(request_context)],
     ) -> RunResponse:
-        return await workflow_runtime.continue_run(
-            run_id=run_id,
-            tenant_id=context.tenant_id,
-            user_id=context.user_id,
-            message=request.message,
-            scenario=request.scenario,
+        return await workflow_runtime.route_message(
+            run_id=run_id, tenant_id=context.tenant_id, user_id=context.user_id,
+            message=request.message, scenario=request.scenario,
+            request_id=request.request_id, route_choice=request.route_choice,
+            expected_requirement_version=request.expected_requirement_version,
+            expected_recommendation_version=request.expected_recommendation_version,
+            expected_resolution_draft_id=request.expected_resolution_draft_id,
+            expected_resolution_version=request.expected_resolution_version,
         )
+
+    @app.post("/api/runs/{run_id}/requirement-confirmations", response_model=RunResponse)
+    async def confirm_requirements(run_id: str, request: ConfirmRequirementsRequest,
+        context: Annotated[RequestContext, Depends(request_context)]) -> RunResponse:
+        return await workflow_runtime.confirm_requirements(run_id=run_id,tenant_id=context.tenant_id,
+            user_id=context.user_id,**request.model_dump())
 
     @app.post("/api/runs/{run_id}/confirm", response_model=RunResponse)
     async def confirm_run(

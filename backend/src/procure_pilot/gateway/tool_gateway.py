@@ -5,6 +5,7 @@ import inspect
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Literal, TypeVar
 from uuid import uuid4
 
@@ -26,8 +27,10 @@ from procure_pilot.domain.models import (
     RiskLevel,
     ToolBudgetPool,
 )
+from procure_pilot.domain.sourcing import OfferFact
 from procure_pilot.fixtures.catalog import PROVIDERS, FixtureCatalogAdapter
 from procure_pilot.fixtures.enterprise import FixtureEnterpriseGateway
+from procure_pilot.fixtures.offer_facts import FACT_TOOLS, fact_scope, query_offer_fact
 from procure_pilot.harness.runtime import ACTIVE_AGENT_EXECUTION_ID, AgentHarness
 from procure_pilot.persistence.execution_repository import ExecutionRepositoryPort
 from procure_pilot.services.budget import (
@@ -41,8 +44,8 @@ ArgsT = TypeVar("ArgsT", bound=BaseModel)
 ResultT = TypeVar("ResultT")
 
 DEFAULT_AGENT_TOOL_NAMES: dict[str, tuple[str, ...]] = {
-    "REQUIREMENT": (),
-    "SOURCING": ("search_catalog",),
+    "REQUIREMENT": ("query_procurement_policy", "query_purchase_history"),
+    "SOURCING": ("estimate_delivery", "query_inventory", "query_warranty", "search_catalog"),
 }
 
 
@@ -182,6 +185,12 @@ class ToolGateway:
             )
             raise
         parsed = definition.arguments_model.model_validate(dict(arguments))
+        if tool_name in {"query_procurement_policy", "query_purchase_history"}:
+            reference_reader = getattr(self, "reference_reader", None)
+            if reference_reader is not None:
+                reference_reader._authorize(context.run, "POLICY" if tool_name == "query_procurement_policy" else "HISTORY")
+            elif context.run.reference_request is None:
+                raise PermissionError("Reference lookup is not currently authorized")
         fingerprint = self._fingerprint(
             {
                 "tool": definition.name,
@@ -189,8 +198,25 @@ class ToolGateway:
                 "arguments": parsed.model_dump(mode="json"),
                 "requirement_version": context.run.requirement.version,
                 "scenario": context.run.scenario,
+                **({"reference_authorization": context.run.reference_request.model_dump(mode="json") if context.run.reference_request else None}
+                    if tool_name in {"query_procurement_policy", "query_purchase_history"} else {}),
             }
         )
+        if tool_name in FACT_TOOLS:
+            kind = FACT_TOOLS[tool_name]
+            scope = fact_scope(context.run, kind)
+            if not any(o.provider == parsed.provider and o.offer_id == parsed.offer_id for o in context.run.recalled_offers):
+                raise ValueError("Offer must come from this Run's successful catalog recall")
+            if not context.runtime_data.get("force_refresh"):
+                cached = next((f for f in reversed(context.run.fact_evidence)
+                               if f.provider == parsed.provider and f.offer_id == parsed.offer_id
+                               and f.kind == kind and f.scope == scope and f.expires_at > datetime.now(UTC)
+                               and (f.status.value == "KNOWN" or f.requirement_version == context.run.requirement.version)), None)
+                if cached is not None:
+                    self.harness.trace(context.run, actor="Evidence Service", kind="SERVICE", name="fact.cache_hit", detail={"fact_id": cached.fact_id, "tool": tool_name})
+                    return cached
+            freshness = (f"confirm:{context.run.confirmation_attempt}" if context.runtime_data.get("force_refresh") else str(int(datetime.now(UTC).timestamp()) // 300))
+            fingerprint = self._fingerprint({"base": fingerprint, "scope": scope, "freshness": freshness})
         resolved_idempotency = idempotency_key or (
             f"gateway:{context.run.run_id}:{definition.name}:{fingerprint}"
         )
@@ -213,7 +239,15 @@ class ToolGateway:
                 confirmed=context.confirmed,
                 budget_pool=context.budget_pool,
             )
-            return self._restore_result(definition, current.result_json)
+            restored = self._restore_result(definition, current.result_json)
+            if tool_name in FACT_TOOLS:
+                if restored.expires_at <= datetime.now(UTC):
+                    # Expiry at a bucket boundary starts a new execution; recovery within TTL reuses it.
+                    return await self.invoke(tool_name=tool_name, arguments=arguments, context=context,
+                        idempotency_key=resolved_idempotency + ":expired:" + restored.fact_id)
+                if not any(f.fact_id == restored.fact_id for f in context.run.fact_evidence):
+                    context.run.fact_evidence.append(restored)
+            return restored
 
         provider_kind, provider_id = self._provider(definition, context, parsed)
         estimate = self._estimate(definition, context, parsed)
@@ -385,8 +419,13 @@ def build_default_tool_registry(
     catalog: FixtureCatalogAdapter,
     enterprise: FixtureEnterpriseGateway,
     provider_costs_micro_usd: Mapping[str, int] | None = None,
+    reference_reader=None,
 ) -> GatewayToolRegistry:
     costs = dict(provider_costs_micro_usd or {})
+    if reference_reader is None:
+        from procure_pilot.fixtures.purchase_history import FixturePurchaseHistoryAdapter
+        from procure_pilot.services.requirement_references import RequirementReferenceReader
+        reference_reader = RequirementReferenceReader(enterprise, FixturePurchaseHistoryAdapter())
 
     def agents_for(tool_name: str) -> frozenset[str]:
         return frozenset(
@@ -413,6 +452,12 @@ def build_default_tool_registry(
             "ready_for_sourcing": not missing,
         }
 
+    async def query_policy(context, _arguments):
+        return reference_reader.policy(context.run)
+
+    async def query_history(context, _arguments):
+        return reference_reader.purchase_history(context.run)
+
     async def get_budget(
         context: GatewayExecutionContext, _arguments: EmptyArguments
     ) -> dict[str, Any]:
@@ -430,19 +475,32 @@ def build_default_tool_registry(
         context: GatewayExecutionContext, arguments: SearchCatalogArguments
     ) -> CatalogSearchResult:
         requirement = context.run.requirement
-        if (
-            requirement.quantity is None
-            or requirement.minimum_ram_gb is None
-            or requirement.minimum_storage_gb is None
-        ):
+        from procure_pilot.services.requirement_references import assert_reference_ready
+        assert_reference_ready(context.run)
+        from procure_pilot.services.requirement_validation import RequirementCompletenessPolicy
+
+        if requirement.quantity is None or RequirementCompletenessPolicy.unresolved_configuration(requirement):
             raise ValueError("Requirement is incomplete; clarify it before catalog search")
         return await catalog.search(
             arguments.provider,
-            minimum_ram_gb=requirement.minimum_ram_gb,
+            # An absent user limit does not remove the enterprise floor. Apply the floor
+            # before catalog truncation so cheap, disallowed 16GB offers cannot crowd it out.
+            minimum_ram_gb=(
+                requirement.minimum_ram_gb if requirement.minimum_ram_gb is not None
+                else int(enterprise.policy["developer_laptop_baseline"]["minimum_ram_gb"])
+            ),
             minimum_storage_gb=requirement.minimum_storage_gb,
             quantity=requirement.quantity,
             scenario=context.run.scenario,
+            include_near_matches=True,
         )
+
+    def fact_handler(kind):
+        async def handler(context, arguments):
+            fact = await query_offer_fact(catalog, run=context.run, provider=arguments.provider, offer_id=arguments.offer_id, kind=kind)
+            context.run.fact_evidence.append(fact)
+            return fact
+        return handler
 
     async def landed_cost(
         context: GatewayExecutionContext, arguments: OfferArguments
@@ -549,7 +607,12 @@ def build_default_tool_registry(
         )
 
     employee_roles = frozenset({"EMPLOYEE", "PROCUREMENT_SPECIALIST"})
+    from procure_pilot.domain.references import ReferenceLookupResult
     definitions: tuple[GatewayToolDefinition[Any, Any], ...] = (
+        *(GatewayToolDefinition(name=name, version="v1", arguments_model=EmptyArguments,
+            result_model=ReferenceLookupResult, handler=handler, policy_name=name, risk=RiskLevel.READ,
+            allowed_roles=employee_roles, allowed_agents=agents_for(name), exposure="AGENT")
+          for name,handler in (("query_procurement_policy",query_policy),("query_purchase_history",query_history))),
         GatewayToolDefinition(
             name="inspect_procurement_requirement",
             version="v1",
@@ -586,6 +649,11 @@ def build_default_tool_registry(
             provider_resolver=provider,
             cost_estimator=provider_cost,
         ),
+        *(GatewayToolDefinition(name=name, version="v1", arguments_model=OfferArguments,
+              result_model=OfferFact, handler=fact_handler(kind), policy_name=name, risk=RiskLevel.READ,
+              allowed_roles=employee_roles, allowed_agents=agents_for(name), exposure="AGENT",
+              provider_resolver=provider, cost_estimator=provider_cost)
+          for name, kind in FACT_TOOLS.items()),
         GatewayToolDefinition(
             name="calculate_landed_cost",
             version="v1",

@@ -1,9 +1,9 @@
 [
-  {"case_id":"clarify-001","category":"clarification","description":"空泛需求按信息价值优先询问预算和数量","expected":"HIGH_INFORMATION_QUESTIONS","requirement_ids":["REQ-01","REQ-03","REQ-04"]},
+  {"case_id":"clarify-001","category":"clarification","description":"空泛笔记本需求一次覆盖当前全部必要条件","expected":"ALL_CURRENT_BLOCKERS_COVERED","requirement_ids":["REQ-01","REQ-03","REQ-04"]},
   {"case_id":"clarify-002","category":"clarification","description":"核心演示首次追问","expected":"WAITING_USER","requirement_ids":["REQ-01","REQ-04"]},
   {"case_id":"clarify-003","category":"clarification","description":"完整需求无需追问","expected":"WAITING_CONFIRMATION","requirement_ids":["REQ-01","REQ-04"]},
   {"case_id":"clarify-004","category":"clarification","description":"多轮补齐关键字段","expected":"WAITING_CONFIRMATION","requirement_ids":["REQ-02"]},
-  {"case_id":"clarify-005","category":"clarification","description":"单轮最多三问且三轮后停止","expected":"BOUNDED_CLARIFICATION","requirement_ids":["REQ-04","REQ-05"]},
+  {"case_id":"clarify-005","category":"clarification","description":"每轮覆盖当前缺项且三轮未补齐后停止","expected":"BOUNDED_CLARIFICATION","requirement_ids":["REQ-04","REQ-05"]},
   {"case_id":"catalog-001","category":"catalog_cost","description":"含税总价可复算","expected":"EXACT_MONEY","requirement_ids":["COST-01","COST-03"]},
   {"case_id":"catalog-002","category":"catalog_cost","description":"最低32GB硬约束过滤","expected":"RAM_HARD_CONSTRAINT","requirement_ids":["REC-04"]},
   {"case_id":"catalog-003","category":"catalog_cost","description":"条件优惠不计可信最低价","expected":"CONDITIONAL_DISCOUNT_LABEL","requirement_ids":["COST-02","REC-02"]},

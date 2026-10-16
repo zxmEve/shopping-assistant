@@ -119,6 +119,10 @@ DEFAULT_TOOL_POLICIES = (
         allowed_roles=frozenset({"EMPLOYEE", "PROCUREMENT_SPECIALIST"}),
         description="Search approved catalog providers.",
     ),
+    *(ToolPolicy(name=name, risk=RiskLevel.READ,
+        allowed_roles=frozenset({"EMPLOYEE", "PROCUREMENT_SPECIALIST"}),
+        description="Read scoped, expiring offer facts.")
+      for name in ("query_inventory", "estimate_delivery", "query_warranty", "query_procurement_policy", "query_purchase_history")),
     ToolPolicy(
         name="get_budget",
         risk=RiskLevel.READ,
@@ -270,15 +274,15 @@ class AgentHarness:
         *,
         secret: str,
         max_steps: int = 20,
-        max_agent_turns: int = 12,
+        max_agent_turns: int = 40,
         max_orchestrator_requests: int = 2,
-        max_specialist_requests: int = 8,
-        max_stage_model_requests: int = 10,
-        max_tool_calls: int = 21,
-        max_agent_read_tool_calls: int = 12,
-        max_workflow_read_tool_calls: int = 6,
-        max_commit_tool_calls: int = 3,
-        max_provider_calls: int = 12,
+        max_specialist_requests: int = 32,
+        max_stage_model_requests: int = 36,
+        max_tool_calls: int = 120,
+        max_agent_read_tool_calls: int = 48,
+        max_workflow_read_tool_calls: int = 72,
+        max_commit_tool_calls: int = 12,
+        max_provider_calls: int = 100,
         max_retries: int = 4,
         max_input_tokens: int = 30_000,
         max_output_tokens: int = 10_000,
@@ -425,6 +429,12 @@ class AgentHarness:
         previous = run.state
         run.state_version += 1
         run.state = to_state
+        from procure_pilot.domain.conversation import RunWaitReason
+
+        run.wait_reason = {
+            RunState.WAITING_USER: RunWaitReason.MISSING_REQUIREMENT,
+            RunState.WAITING_CONFIRMATION: RunWaitReason.WAITING_CONFIRMATION,
+        }.get(to_state)
         event = StateTransitionEvent(
             version=run.state_version,
             from_state=previous,
@@ -747,6 +757,9 @@ class AgentHarness:
             "tenant_id": run.tenant_id,
             "user_id": run.user_id,
             "requirement_version": run.requirement.version,
+            "recommendation_version": run.recommendation_version,
+            "candidate_ref": (f"{run.recommendation.best_overall.offer.provider}/{run.recommendation.best_overall.offer.offer_id}" if run.recommendation else None),
+            "fact_digest": run.confirmed_fact_digest,
             "action": action,
             "quote_fingerprint": run.quote_snapshot.fingerprint,
             "expires_at": int((datetime.now(UTC) + expires_in).timestamp()),
@@ -779,6 +792,9 @@ class AgentHarness:
             "tenant_id": run.tenant_id,
             "user_id": run.user_id,
             "requirement_version": run.requirement.version,
+            "recommendation_version": run.recommendation_version,
+            "candidate_ref": (f"{run.recommendation.best_overall.offer.provider}/{run.recommendation.best_overall.offer.offer_id}" if run.recommendation else None),
+            "fact_digest": run.confirmed_fact_digest,
             "action": action,
             "quote_fingerprint": run.quote_snapshot.fingerprint,
         }
@@ -879,9 +895,9 @@ class AgentHarness:
 ALLOWED_STATE_TRANSITIONS: dict[RunState, frozenset[RunState]] = {
     RunState.COLLECTING: frozenset({RunState.WAITING_USER, RunState.SOURCING, RunState.FAILED}),
     RunState.WAITING_USER: frozenset({RunState.COLLECTING, RunState.FAILED}),
-    RunState.SOURCING: frozenset({RunState.REVIEWING, RunState.FAILED}),
-    RunState.REVIEWING: frozenset({RunState.WAITING_CONFIRMATION, RunState.FAILED}),
-    RunState.WAITING_CONFIRMATION: frozenset({RunState.REVALIDATING, RunState.FAILED}),
+    RunState.SOURCING: frozenset({RunState.REVIEWING, RunState.WAITING_USER, RunState.FAILED}),
+    RunState.REVIEWING: frozenset({RunState.WAITING_CONFIRMATION, RunState.WAITING_USER, RunState.FAILED}),
+    RunState.WAITING_CONFIRMATION: frozenset({RunState.COLLECTING, RunState.REVALIDATING, RunState.FAILED}),
     RunState.REVALIDATING: frozenset(
         {RunState.WAITING_CONFIRMATION, RunState.DRAFT_CREATING, RunState.FAILED}
     ),

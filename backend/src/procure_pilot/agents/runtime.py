@@ -66,7 +66,7 @@ def topology_description(
         "specialists": ["Requirement Agent", "Sourcing Agent"],
         "pattern": "deterministic-runtime-with-two-agents",
         "function_tools": [
-            "search_catalog",
+            "search_catalog", "query_inventory", "estimate_delivery", "query_warranty", "query_procurement_policy", "query_purchase_history",
         ],
         "agent_contracts": {
             "Requirement Agent": {
@@ -77,7 +77,7 @@ def topology_description(
                     "requirement_schema_snapshot",
                     "authorized_minimal_memory_projection",
                 ],
-                "tools": [],
+                "tools": ["query_procurement_policy", "query_purchase_history"],
                 "output": "PROPOSED versioned RequirementSpec",
             },
             "Sourcing Agent": {
@@ -87,7 +87,7 @@ def topology_description(
                     "authorized_preference_projection",
                     "ValidatedCandidateSet during RANK",
                 ],
-                "tools": ["search_catalog during RETRIEVE"],
+                "tools": ["search_catalog", "query_inventory", "estimate_delivery", "query_warranty"],
                 "output": "grounded candidate proposal and bound ranking",
             },
         },

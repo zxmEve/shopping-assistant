@@ -114,8 +114,8 @@ async def test_runtime_rejects_tools_outside_agent_allowlist():
     assert response.run.recommendation.selection_source == "deterministic_score"
     assert "forbidden tools" in (planner.last_error or "")
     assert AGENT_TOOL_ALLOWLIST == {
-        AgentKind.REQUIREMENT: (),
-        AgentKind.SOURCING: ("search_catalog",),
+        AgentKind.REQUIREMENT: ("query_procurement_policy", "query_purchase_history"),
+        AgentKind.SOURCING: ("estimate_delivery", "query_inventory", "query_warranty", "search_catalog"),
     }
 
 

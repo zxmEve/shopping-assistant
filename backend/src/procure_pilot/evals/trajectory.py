@@ -9,7 +9,7 @@ from procure_pilot.domain.models import ProcurementRun, TraceEvent
 ALLOWED_AGENT_TOOL_EVENTS = frozenset(
     {
         "inspect_requirement",
-        "search_catalog",
+        "search_catalog", "query_inventory", "estimate_delivery", "query_warranty", "query_procurement_policy", "query_purchase_history",
     }
 )
 VALID_STOP_CONDITIONS = frozenset(
@@ -36,7 +36,10 @@ class AgentTrajectoryGrade(BaseModel):
 def _call_fingerprint(event: TraceEvent) -> str:
     provider = event.detail.get("provider", "")
     offer_id = event.detail.get("offer_id", "")
-    return ":".join(str(part) for part in (event.name, provider, offer_id))
+    base = ":".join(str(part) for part in (event.name, provider, offer_id))
+    if event.name in {"query_inventory", "estimate_delivery", "query_warranty"}:
+        return base + ":" + str(event.detail.get("fact_id", ""))
+    return base
 
 
 def grade_agent_trajectory(run: ProcurementRun) -> AgentTrajectoryGrade:

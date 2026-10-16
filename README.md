@@ -25,6 +25,7 @@ ProcurePilot 是一个面向企业员工、采购专员和审批人的 AI 采购
 - [多级费用预算与统一工具网关](docs/14-multilevel-budget-and-tool-gateway.md)
 - [Requirement Agent 与版本化 RequirementSpec 技术设计](docs/15-requirement-agent-boundary-refactor.md)
 - [Sourcing Agent 合规候选排序链路技术设计](docs/16-sourcing-decision-pipeline-refactor.md)
+- [Agent 扩展与集中追问实施方案](docs/19-agent-expansion-plan.md)（已完成集中追问、按需查询、约束协商、推荐后对话与恢复确认）
 - [单 Agent、双 Agent 与确定性基线消融评测技术设计](docs/17-agent-topology-ablation-evaluation.md)
 
 ## 快速开始
@@ -56,6 +57,8 @@ make dev
 启用真实 OpenAI Agents SDK 及其兼容 Provider：
 
 ```bash
+# “真实模型模式”表示需求理解和候选排序会实际请求模型服务，而不是返回固定模拟结果。
+# 修改 .env 后必须重启 make dev；页面左侧显示“真实模型已启用”才表示切换成功。
 # OpenAI：设置 PROCURE_AGENT_MODE=openai 和 PROCURE_OPENAI_API_KEY
 # 双 Agent：设置 PROCURE_AGENT_TOPOLOGY=two_agent
 # DeepSeek：再设置 PROCURE_MODEL_PROVIDER=deepseek、
@@ -125,7 +128,8 @@ Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixtur
 
 ## 当前已验证的亮点
 
-- 主动澄清：从中文需求抽取关键字段，支持多轮增量补齐和单轮最多三个问题。
+- 主动澄清：从中文需求抽取关键字段，一次覆盖当前全部必要条件，支持部分回答后仅补问剩余项；配置可明确无要求，企业底线仍强制校验。
+- 消息路由：需求合并前判断继续当前采购、独立新采购或待澄清；复用 Requirement Agent 的零工具路由阶段，支持旧任务保留、请求去重、中断恢复和推荐后修改条件。
 - Fixture 比价：三个逻辑 provider 返回不一致的原始表达，经确定性管线归一为 Product、Variant、Offer；关键冲突由服务端 veto，低置信度报价不进入排名，金额使用 Decimal。
 - 企业决策：预算、采购制度、供应商状态和审批路径由确定性领域服务判断。
 - 最小 Harness：合法状态迁移与连续版本、按 Run 保存的执行额度/用量、Provider 超时/有限重试/独立熔断/并发隔离、版本化 Tool Registry、HITL、签名 Action Token 和幂等草稿。
@@ -160,3 +164,7 @@ Fixture API 使用服务端映射的演示会话：`Authorization: Bearer fixtur
 - 价格、库存、预算和制度结论只能来自工具证据，不能来自模型记忆。
 - 任何采购草稿写入都需要显式确认，并由服务端重新鉴权和复核。
 - fixture 模式保证面试现场离线可演示；live 模式证明真实集成能力，但不影响核心演示稳定性。
+
+按需查询、无候选协商、推荐后对话与恢复／确认的实施记录见 [Agent 扩展方案](docs/19-agent-expansion-plan.md) 和 [ADR 0018](docs/adr/0018-evidence-negotiation-and-dialogue.md)。库存、交期和保修当前使用本地模拟供应商接口。
+
+需求 Agent 已增加制度与历史采购单只读查询：外部条件先生成有来源的需求草案，用户确认后才进入寻源。历史订单当前为模拟数据；支持选择、来源复核及确认中断恢复。详见 [实施方案](docs/20-requirement-reference-and-confirmation.md)。

@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from procure_pilot.agents.tools import AgentCandidateProposal
 from procure_pilot.domain.models import ValidatedCandidateSet
+from procure_pilot.domain.references import ReferenceRequest
 from procure_pilot.domain.requirements import RequirementSpec
 
 
@@ -22,7 +23,7 @@ class AgentTask(BaseModel):
     agent: AgentKind
     objective: str = Field(min_length=1, max_length=500)
     max_model_requests: int = Field(default=4, gt=0, le=4)
-    max_tool_calls: int = Field(default=3, ge=0, le=3)
+    max_tool_calls: int = Field(default=21, ge=0, le=21)
 
 
 class ContextMessage(BaseModel):
@@ -52,6 +53,8 @@ class AgentContextPayload(BaseModel):
     estimated_tokens: int = Field(default=0, ge=0)
 
 
+
+
 class AgentTaskEnvelope(BaseModel):
     run_id: str
     state_version: int = Field(ge=0)
@@ -64,6 +67,7 @@ class AgentTaskEnvelope(BaseModel):
     source_message_id: str | None = None
     validated_candidates: ValidatedCandidateSet | None = None
     requirement_schema: dict[str, Any] | None = None
+    reference_request: ReferenceRequest | None = None
 
 
 class AgentResult(BaseModel):

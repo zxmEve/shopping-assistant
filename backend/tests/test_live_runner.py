@@ -28,7 +28,7 @@ async def test_live_runner_requires_confirmation_and_draft_creation(monkeypatch,
     assert result["recommendation_state"] == "WAITING_CONFIRMATION"
     assert result["state"] == "DRAFT_CREATED"
     assert result["draft_id"].startswith("draft_")
-    assert result["usage"]["commit_tool_calls"] == 3
+    assert result["usage"]["commit_tool_calls"] == 6
     assert result["usage"]["reserved_commit_tool_calls"] == 0
 
 

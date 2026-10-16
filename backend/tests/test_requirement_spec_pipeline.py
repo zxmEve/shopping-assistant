@@ -45,8 +45,26 @@ class MirroredRequirementEvidenceAdapter(FixtureTwoAgentAdapter):
         return call
 
 
+class InvalidHistoricalEvidenceAdapter(FixtureTwoAgentAdapter):
+    async def execute_agent(self, envelope, *, context, allowed_tools):
+        call = await super().execute_agent(
+            envelope, context=context, allowed_tools=allowed_tools
+        )
+        if (
+            envelope.task.agent == AgentKind.REQUIREMENT
+            and context.run.requirement_spec is not None
+            and call.output.requirement_spec is not None
+        ):
+            current_message = context.run.messages[-1]
+            historical = call.output.requirement_spec.evidence[0]
+            historical.message_id = current_message.message_id
+            historical.start = 0
+            historical.end = len(historical.quote)
+        return call
+
+
 @pytest.mark.asyncio
-async def test_complete_input_always_runs_zero_tool_requirement_before_sourcing():
+async def test_complete_input_runs_requirement_before_sourcing_with_reference_tools_available():
     adapter = BoundaryRecordingAdapter()
     engine = make_engine()
     engine.planner = TwoAgentPlanner(adapter, fallback_on_error=False)
@@ -62,8 +80,8 @@ async def test_complete_input_always_runs_zero_tool_requirement_before_sourcing(
     assert spec.base_version == 0 and spec.version == 1
     assert spec.delta.from_version == 0 and spec.delta.to_version == 1
     assert adapter.calls == [
-        (AgentKind.REQUIREMENT, ()),
-        (AgentKind.SOURCING, ("search_catalog",)),
+        (AgentKind.REQUIREMENT, ("query_procurement_policy", "query_purchase_history")),
+        (AgentKind.SOURCING, ("estimate_delivery", "query_inventory", "query_warranty", "search_catalog")),
     ]
     assert response.run.state == RunState.WAITING_CONFIRMATION
     assert response.run.validated_candidate_set is not None
@@ -105,8 +123,8 @@ async def test_langgraph_routes_requirement_validation_into_sourcing_in_one_turn
 
     assert response.run.state == RunState.WAITING_CONFIRMATION
     assert adapter.calls == [
-        (AgentKind.REQUIREMENT, ()),
-        (AgentKind.SOURCING, ("search_catalog",)),
+        (AgentKind.REQUIREMENT, ("query_procurement_policy", "query_purchase_history")),
+        (AgentKind.SOURCING, ("estimate_delivery", "query_inventory", "query_warranty", "search_catalog")),
     ]
     assert [item.node_name for item in executions] == [
         "requirement_agent",
@@ -116,7 +134,7 @@ async def test_langgraph_routes_requirement_validation_into_sourcing_in_one_turn
 
 
 @pytest.mark.asyncio
-async def test_requirement_delta_is_versioned_and_only_one_question_is_asked():
+async def test_requirement_delta_is_versioned_and_all_current_questions_are_asked():
     engine = make_engine()
     engine.planner = TwoAgentPlanner(FixtureTwoAgentAdapter(), fallback_on_error=False)
 
@@ -128,7 +146,10 @@ async def test_requirement_delta_is_versioned_and_only_one_question_is_asked():
     assert first.run.requirement_spec is not None
     assert first.run.requirement_spec.version == 1
     assert first.run.requirement_spec.next_question is not None
-    assert first.assistant_message.count("？") == 1
+    plan = first.run.requirement_spec.clarification_plan
+    assert set(plan.covered_fields) == {item.field for item in first.run.requirement_spec.missing_fields}
+    assert len(plan.questions) == 5
+    assert first.assistant_message.count("？") == 5
 
     second = await engine.continue_run(
         run_id=first.run.run_id,
@@ -142,6 +163,36 @@ async def test_requirement_delta_is_versioned_and_only_one_question_is_asked():
     assert spec.delta.from_version == 1 and spec.delta.to_version == 2
     assert len(second.run.requirement_spec_history) == 2
     assert second.run.state == RunState.WAITING_CONFIRMATION
+
+
+@pytest.mark.asyncio
+async def test_invalid_model_evidence_falls_back_without_stranding_workflow():
+    engine = make_engine()
+    engine.planner = TwoAgentPlanner(
+        InvalidHistoricalEvidenceAdapter(), fallback_on_error=False
+    )
+
+    first = await engine.start(
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message="采购20台开发笔记本，单台预算7000元，送到上海",
+    )
+    assert first.run.state == RunState.WAITING_USER
+
+    second = await engine.continue_run(
+        run_id=first.run.run_id,
+        tenant_id="demo_cn",
+        user_id="employee_001",
+        message="最低32GB内存和1t硬盘，预算含税，两周内到货",
+    )
+
+    assert second.run.state == RunState.WAITING_CONFIRMATION
+    assert second.run.requirement_spec is not None
+    assert any(
+        event.name == "requirement_spec.agent_output_rejected"
+        and event.status == "DEGRADED"
+        for event in second.run.trace
+    )
 
 
 def test_requirement_agent_contract_classifies_soft_preferences_and_conflicts():

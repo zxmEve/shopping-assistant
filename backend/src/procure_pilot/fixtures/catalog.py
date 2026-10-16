@@ -407,10 +407,11 @@ class FixtureCatalogAdapter:
         self,
         provider: str,
         *,
-        minimum_ram_gb: int,
-        minimum_storage_gb: int,
+        minimum_ram_gb: int | None,
+        minimum_storage_gb: int | None,
         quantity: int,
         scenario: str | None = None,
+        include_near_matches: bool = False,
     ) -> CatalogSearchResult:
         if provider not in PROVIDERS:
             raise ProviderError(provider, "UNKNOWN_PROVIDER", "Unknown provider")
@@ -421,21 +422,24 @@ class FixtureCatalogAdapter:
             raise ProviderError(provider, "TIMEOUT", "Fixture timeout")
 
         provider_raw = [
-            raw for raw in self.raw_offers if raw.provider == provider and raw.stock >= quantity
+            raw for raw in self.raw_offers if raw.provider == provider and (include_near_matches or raw.stock >= quantity)
         ]
         results = [self.pipeline.canonicalize(raw) for raw in provider_raw]
         offers = [
             result.offer
             for result in results
             if result.offer is not None
-            and result.offer.variant.ram_gb >= minimum_ram_gb
-            and result.offer.variant.storage_gb >= minimum_storage_gb
+            and (minimum_ram_gb is None or result.offer.variant.ram_gb >= minimum_ram_gb)
+            and (minimum_storage_gb is None or result.offer.variant.storage_gb >= minimum_storage_gb)
         ]
         issues = [result.assessment for result in results if result.offer is None]
         return CatalogSearchResult(
             provider=provider,
             retrieved_count=len(provider_raw),
-            offers=sorted(offers, key=lambda item: item.unit_price.amount)[:12],
+            offers=(sorted(offers, key=lambda item: item.unit_price.amount)[:12] +
+                sorted([r.offer for r in results if r.offer is not None and r.offer not in offers],
+                       key=lambda item: (max(0, (minimum_ram_gb or 0)-item.variant.ram_gb) + max(0, (minimum_storage_gb or 0)-item.variant.storage_gb)/32, item.unit_price.amount))[:6]
+                if include_near_matches else sorted(offers, key=lambda item: item.unit_price.amount)[:12]),
             assessments=issues,
         )
 

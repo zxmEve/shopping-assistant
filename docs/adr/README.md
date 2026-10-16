@@ -2,14 +2,14 @@
 
 ADR 是“为什么这样设计”的记录，不是代码说明书。建议先看本页，再按你关心的问题阅读对应 ADR。
 
-## 十六个决策解决了什么问题
+## 架构决策解决了什么问题
 
 | ADR | 它在防什么问题 | 为什么选择现在的做法 |
 |---|---|---|
 | [ADR-0001](0001-project-governance-and-delivery.md) | 把规划中的能力写成已经完成，或用绿色测试掩盖覆盖空白 | 用需求、实现和证据三者对应来判断是否真的完成；严重错误一票否决 |
 | [ADR-0002](0002-quote-snapshot-and-confirmation.md) | 用户确认后价格、库存或制度变化，系统仍用旧事实创建草稿 | 确认时绑定用户看到的报价，写入前重新读取；变化后必须再次确认 |
 | [ADR-0003](0003-fixture-session-and-tool-registry.md) | 客户端伪造身份，或 Agent 因 Prompt Injection 调用越权工具 | 身份由服务端确认；工具按角色明确允许，未登记工具默认拒绝 |
-| [ADR-0004](0004-bounded-active-clarification.md) | Agent 一次问太多、漏问重要信息或无限追问 | 先问影响预算和候选的问题，每轮最多三问，最多三轮，并限制可使用的默认值 |
+| [ADR-0004 历史](0004-bounded-active-clarification.md) | Agent 一次问太多、漏问重要信息或无限追问 | 先问影响预算和候选的问题，每轮最多三问，最多三轮，并限制可使用的默认值 |
 | [ADR-0005](0005-deterministic-product-canonicalization.md) | 把低配、翻新或套装商品错误合并，制造虚假最低价 | 统一不同写法后逐项检查关键配置；冲突拒绝，缺信息人工复核，只有确认同款才比价 |
 | [ADR-0006](0006-explicit-state-machine-and-execution-budgets.md) | 状态可以被跳过，Trace 计数不能真正约束工具和 Provider 调用 | 状态统一走 Harness 迁移表；每个 Run 保存额度和用量；工具执行超时、有限重试、独立熔断和并发隔离 |
 | [ADR-0007](0007-grounded-agent-function-tools.md) | Agent 只写计划，或通过工具参数虚构价格、预算和商品事实 | 给专家挂载严格只读工具；模型只选 Provider 和已查询报价 ID，其他事实由服务器读取 |
@@ -22,6 +22,7 @@ ADR 是“为什么这样设计”的记录，不是代码说明书。建议先�
 | [ADR-0014](0014-pgvector-hybrid-policy-retrieval.md) | 只用 FTS 漏掉改写，只用向量削弱精确条款，融合分又无法解释 | 相同权限预过滤后并行 FTS/pgvector Top-K，RRF + 确定性重排，并公开各通道 rank/score |
 | [ADR-0015](0015-policy-file-ingestion-and-embedding-lifecycle.md) | 文件解析丢失原文、扫描件被当成空文档，或切换向量模型后新旧索引静默混用 | 保留原文件/哈希/解析元数据，扫描件显式 OCR，embedding 配置隔离并按模型 ID 可恢复回填 |
 | [ADR-0016](0016-langgraph-workflow-with-domain-harness.md) | 自研 checkpoint/interrupt 重复造轮子，或让工作流框架取代业务安全边界 | LangGraph 管编排与恢复，Harness 管权限、预算、状态、HITL Token 和副作用幂等 |
+| [ADR-0017](0017-batched-clarification-and-field-resolution.md) | 单问题往返过多、模型问题被覆盖、无要求被误当缺失 | 一次覆盖当前阻塞项，保留合格模型问题；区分明确值、无要求与标准授权，兼容旧快照 |
 
 ## 这些决策背后的共同原则
 
@@ -59,3 +60,7 @@ ADR 是“为什么这样设计”的记录，不是代码说明书。建议先�
 - 已替代：历史决策仍保留，但已经由新的 ADR 替换。
 
 每份 ADR 的“当前限制”同样重要。“已采用”只表示当前实现遵循该设计，不表示它已经达到完整生产水平。
+
+- [0018：按需事实查询、约束协商与推荐后对话](0018-evidence-negotiation-and-dialogue.md)
+
+- [0019：需求参考工具与寻源前确认](0019-referenced-requirements-and-confirmation.md)
