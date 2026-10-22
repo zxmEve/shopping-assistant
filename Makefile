@@ -1,4 +1,4 @@
-.PHONY: setup backend frontend dev test eval live-eval live-eval-s3 live-eval-compare migrate build
+.PHONY: setup backend frontend dev test eval live-eval live-eval-s3 live-eval-compare migrate build eval-requirements
 
 setup:
 	cd backend && uv sync --extra dev
@@ -23,6 +23,9 @@ test:
 
 eval:
 	cd backend && uv run procure-eval
+
+eval-requirements:
+	cd backend && uv run procure-requirement-eval run --mode offline --split development
 
 live-eval:
 	cd backend && uv run procure-live-eval --runs 3

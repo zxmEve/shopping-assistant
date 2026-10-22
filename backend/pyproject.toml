@@ -38,6 +38,7 @@ dev = [
 procure-pilot = "procure_pilot.api.app:run"
 procure-eval = "procure_pilot.evals.runner:main"
 procure-live-eval = "procure_pilot.evals.live_runner:main"
+procure-requirement-eval = "procure_pilot.evals.requirement_runner:main"
 procure-knowledge-backfill = "procure_pilot.knowledge_backfill:main"
 procure-budget-worker = "procure_pilot.workers.budget_reconciler:main"
 

@@ -1,0 +1,1655 @@
+{
+  "review_version": "requirement-v1-fix-review-2026-10-22",
+  "mode": "offline",
+  "business_review_complete": false,
+  "label_status": "draft_engineering_labels",
+  "label_values_changed": false,
+  "scorer_changed": false,
+  "baseline_sha256": "3086d8ce72b13e87af16e29b288474702fbf8d3f8acc37aa3ce28605932c5bad",
+  "final_sha256": "c008a8db790effc95a0f449e58a673216f3c149fc93db9527a9997ab93bb7098",
+  "dataset_sha256": "28e7191e31bc36f364ae7c193aaac6f3eee6a6917f9275d8fea10812013b2b39",
+  "evaluator_sha256": "02d3493afe77a2503468e4b8f5833260cd71c6a4bf0ebb467fb2cced57b08fb0",
+  "stage_reports": [
+    {
+      "stage": "修复前",
+      "path": "backend/evals/audits/requirement-v1-20261022/20261022T111103-2e3ebab3cc/report.json",
+      "sha256": "3086d8ce72b13e87af16e29b288474702fbf8d3f8acc37aa3ce28605932c5bad",
+      "proposal_passed": 44,
+      "final_passed": 44,
+      "original_generated_path": "backend/evals/reports/requirements/20261022T111103-2e3ebab3cc/report.json"
+    },
+    {
+      "stage": "存储单位与冲突",
+      "path": "backend/evals/audits/requirement-v1-20261022/20261022T111812-9fc12d20f6/report.json",
+      "sha256": "eb7a1a1edb289af95b9d87bda65ee9437f43ce469c0f5c75441faa18210d76c2",
+      "proposal_passed": 52,
+      "final_passed": 52,
+      "original_generated_path": "backend/evals/reports/requirements/20261022T111812-9fc12d20f6/report.json"
+    },
+    {
+      "stage": "数量更正",
+      "path": "backend/evals/audits/requirement-v1-20261022/20261022T111854-02267046cd/report.json",
+      "sha256": "c9ac6a9924dd7cc7254195dbef92a2d1e97436023e8d23408671d03c894e38f1",
+      "proposal_passed": 54,
+      "final_passed": 54,
+      "original_generated_path": "backend/evals/reports/requirements/20261022T111854-02267046cd/report.json"
+    },
+    {
+      "stage": "币种",
+      "path": "backend/evals/audits/requirement-v1-20261022/20261022T111952-33799c63ff/report.json",
+      "sha256": "6c9db6127a3278c1a9389a1a50702c158b589524b02fb4a0d4efb2a6ade96360",
+      "proposal_passed": 56,
+      "final_passed": 56,
+      "original_generated_path": "backend/evals/reports/requirements/20261022T111952-33799c63ff/report.json"
+    },
+    {
+      "stage": "成色与否定",
+      "path": "backend/evals/audits/requirement-v1-20261022/20261022T112056-40eba92ec0/report.json",
+      "sha256": "f42cc96471d5ba5447ffeea453bab4aaed8ca86fb76a02242bef68f86ed942ff",
+      "proposal_passed": 58,
+      "final_passed": 58,
+      "original_generated_path": "backend/evals/reports/requirements/20261022T112056-40eba92ec0/report.json"
+    },
+    {
+      "stage": "总预算口径",
+      "path": "backend/evals/audits/requirement-v1-20261022/20261022T112200-ed875f3703/report.json",
+      "sha256": "2ad427767dd8f9b7f94f92dc0b3e6ef9d6efde8e0d4abbbb7f46c36af01d59fc",
+      "proposal_passed": 60,
+      "final_passed": 60,
+      "original_generated_path": "backend/evals/reports/requirements/20261022T112200-ed875f3703/report.json"
+    },
+    {
+      "stage": "边界加固后的最终版本",
+      "path": "backend/evals/audits/requirement-v1-20261022/20261022T113012-ef2eef3fea/report.json",
+      "sha256": "c008a8db790effc95a0f449e58a673216f3c149fc93db9527a9997ab93bb7098",
+      "proposal_passed": 60,
+      "final_passed": 60,
+      "original_generated_path": "backend/evals/reports/requirements/20261022T113012-ef2eef3fea/report.json"
+    }
+  ],
+  "classification_counts": {
+    "implementation_defect": 14,
+    "contract_clarification_with_implementation_defect": 2
+  },
+  "root_cause_counts": {
+    "storage": 8,
+    "quantity": 2,
+    "condition": 2,
+    "currency": 2,
+    "total_budget": 2
+  },
+  "original_failures": [
+    {
+      "case_id": "req-complete-02-1",
+      "message": "采购5台笔记本，单台预算10000元未税，送深圳，最低32GB内存和512GB硬盘，7天内",
+      "root_cause": "storage",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "GB单位分支先匹配G，导致后缀存储标记丢失；保留完整单位并恢复上下界。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 5,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "10000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": false,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_days",
+          "value": 7,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 32,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 512,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 1,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 512,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 8,
+        "correct_count": 8,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-complete-02-2",
+      "message": "送深圳的5台笔记本，最低32GB内存、512GB存储，单台预算10000元不含税，7天到货",
+      "root_cause": "storage",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "GB单位分支先匹配G，导致后缀存储标记丢失；保留完整单位并恢复上下界。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 5,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "10000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": false,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_days",
+          "value": 7,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 32,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 512,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 1,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 512,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 8,
+        "correct_count": 8,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-complete-04-1",
+      "message": "买3台笔记本，单件预算7000元含税，交付到上海，最低16GB内存和512GB硬盘",
+      "root_cause": "storage",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "GB单位分支先匹配G，导致后缀存储标记丢失；保留完整单位并恢复上下界。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 3,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "7000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 512,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 1,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 512,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-complete-04-2",
+      "message": "最低16GB内存、512GB存储的3台笔记本，送上海，单台预算7000元，含税",
+      "root_cause": "storage",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "GB单位分支先匹配G，导致后缀存储标记丢失；保留完整单位并恢复上下界。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 3,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "7000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 512,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 1,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 512,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-complete-05-1",
+      "message": "采购8台笔记本，单台预算12000元含税，送深圳，最低32GB内存和2048GB存储",
+      "root_cause": "storage",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "GB单位分支先匹配G，导致后缀存储标记丢失；保留完整单位并恢复上下界。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 8,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "12000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 32,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 2048,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 1,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 2048,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-complete-05-2",
+      "message": "采购8台笔记本，送深圳，含税单台预算12000元，至少32GB内存，最低2048GB硬盘",
+      "root_cause": "storage",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "GB单位分支先匹配G，导致后缀存储标记丢失；保留完整单位并恢复上下界。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 8,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "12000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 32,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 2048,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 1,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 2048,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-edge-01-1",
+      "message": "采购20台，不对，改成12台笔记本，单台预算8000元含税，送上海，最低16GB内存和1TB硬盘",
+      "root_cause": "quantity",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "明确更正应取最终数量；原实现只取首个数字，后端亦增加语义一致性校验。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 12,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "quantity",
+              "value": 12,
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "quantity",
+              "value": 20,
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-edge-01-2",
+      "message": "原来说20台，最终只采购12台笔记本，单台预算8000元含税，送上海，最低16GB内存和1TB存储",
+      "root_cause": "quantity",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "明确更正应取最终数量；原实现只取首个数字，后端亦增加语义一致性校验。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 12,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "quantity",
+              "value": 12,
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "quantity",
+              "value": 20,
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-edge-03-1",
+      "message": "采购20台笔记本，单台预算8000元含税，送上海，最低16GB内存，最低1TB硬盘，不要翻新机，只接受全新机",
+      "root_cause": "condition",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "新增肯定成色提取，否定不得支持肯定约束；条件必须传入领域需求。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "condition",
+          "value": "NEW",
+          "operator": "EQ",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 1,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "condition",
+            "value": "NEW",
+            "operator": "EQ",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 8,
+        "correct_count": 8,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-edge-03-2",
+      "message": "采购20台笔记本，单台预算8000元含税，送上海，最低16GB内存，最低1TB硬盘，必须全新，不要二手或翻新",
+      "root_cause": "condition",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "新增肯定成色提取，否定不得支持肯定约束；条件必须传入领域需求。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "condition",
+          "value": "NEW",
+          "operator": "EQ",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 1,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "condition",
+            "value": "NEW",
+            "operator": "EQ",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 8,
+        "correct_count": 8,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-edge-04-1",
+      "message": "采购20台笔记本，单台预算8000美元含税，送上海，最低16GB内存和1TB硬盘",
+      "root_cause": "currency",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "预算币种不得硬编码CNY；提取明确币种并拒绝相矛盾的模型提议。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "USD"
+          },
+          "operator": "EQ",
+          "strength": null
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "budget.maximum",
+              "value": {
+                "amount": "8000",
+                "currency": "USD"
+              },
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "budget.maximum",
+              "value": {
+                "amount": "8000",
+                "currency": "CNY"
+              },
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-edge-04-2",
+      "message": "采购20台笔记本，预算8000 USD每台，含税，送上海，最低16GB内存和1TB存储",
+      "root_cause": "currency",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "预算币种不得硬编码CNY；提取明确币种并拒绝相矛盾的模型提议。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "USD"
+          },
+          "operator": "EQ",
+          "strength": null
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "budget.maximum",
+              "value": {
+                "amount": "8000",
+                "currency": "USD"
+              },
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "budget.maximum",
+              "value": {
+                "amount": "8000",
+                "currency": "CNY"
+              },
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-conflicts-03-1",
+      "message": "采购20台笔记本，单台预算8000元含税，送上海，最低16GB内存，最低1024GB存储，存储不超过512GB",
+      "root_cause": "storage",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "GB单位分支先匹配G，导致后缀存储标记丢失；保留完整单位并恢复上下界。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 512,
+          "operator": "LTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 1,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 1024,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [
+          "conflicts_mismatch",
+          "missing_fields_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 8,
+        "correct_count": 8,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-conflicts-03-2",
+      "message": "采购20台笔记本，单台预算8000元含税，送上海，最低16GB内存，硬盘至少1024GB，最多512GB硬盘",
+      "root_cause": "storage",
+      "classification": "implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "GB单位分支先匹配G，导致后缀存储标记丢失；保留完整单位并恢复上下界。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 512,
+          "operator": "LTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "before": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 1,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 512,
+            "operator": "LTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "conflicts_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 8,
+        "correct_count": 8,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-conflicts-05-1",
+      "message": "采购20台笔记本，整批预算160000元含税，送上海，最低16GB内存和1TB硬盘",
+      "root_cause": "total_budget",
+      "classification": "contract_clarification_with_implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "当前契约只存单件预算上限；保留追问，不擅自换算。无论是否支持分摊，总额直接当单价均有误。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [
+        "budget.maximum"
+      ],
+      "before": {
+        "passed": false,
+        "expected_count": 6,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 1,
+        "omitted": [],
+        "wrong": [],
+        "additions": [
+          {
+            "field": "budget.maximum",
+            "value": {
+              "amount": "160000",
+              "currency": "CNY"
+            },
+            "operator": "EQ",
+            "strength": null
+          }
+        ],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 6,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    },
+    {
+      "case_id": "req-conflicts-05-2",
+      "message": "采购20台笔记本，含税总预算160000元，送上海，最低16GB内存和1TB存储",
+      "root_cause": "total_budget",
+      "classification": "contract_clarification_with_implementation_defect",
+      "label_action": "unchanged",
+      "label_rationale": "当前契约只存单件预算上限；保留追问，不擅自换算。无论是否支持分摊，总额直接当单价均有误。",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [
+        "budget.maximum"
+      ],
+      "before": {
+        "passed": false,
+        "expected_count": 6,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 1,
+        "omitted": [],
+        "wrong": [],
+        "additions": [
+          {
+            "field": "budget.maximum",
+            "value": {
+              "amount": "160000",
+              "currency": "CNY"
+            },
+            "operator": "EQ",
+            "strength": null
+          }
+        ],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 6,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      }
+    }
+  ],
+  "comparison": {
+    "status": "no_regression_observed",
+    "changed_factors": [
+      "source_tree_sha256"
+    ],
+    "prompt_only": false,
+    "regressions": {
+      "proposal": [],
+      "final": []
+    },
+    "degraded_checks": [],
+    "note": "Paired descriptive comparison; repeated samples are not independent evidence of production quality.",
+    "token_mean_delta": null,
+    "quality_delta": {
+      "proposal": {
+        "case_exact_match_rate": 0.2666666666666667,
+        "omission_rate": -0.023696682464454975,
+        "wrong_extraction_rate": -0.009478672985781991
+      },
+      "final": {
+        "case_exact_match_rate": 0.2666666666666667,
+        "omission_rate": -0.023696682464454975,
+        "wrong_extraction_rate": -0.009478672985781991
+      }
+    }
+  },
+  "verified": {
+    "backend_tests_passed": 370,
+    "backend_tests_skipped": 1,
+    "new_regression_tests": 50,
+    "ruff": "passed"
+  },
+  "limitations": [
+    "Not an LLM or end-to-end procurement measurement.",
+    "The original holdout was used for debugging and is now a seen regression set.",
+    "Budget-label policy remains an engineering contract decision pending business review."
+  ]
+}

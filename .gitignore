@@ -6,6 +6,7 @@
 backend/.venv/
 backend/.pytest_cache/
 backend/.ruff_cache/
+backend/evals/reports/requirements/
 backend/**/__pycache__/
 frontend/node_modules/
 frontend/dist/

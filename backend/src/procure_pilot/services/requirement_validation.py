@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from typing import Any
 
-from procure_pilot.domain.models import Money, ProcurementRequirement
+from procure_pilot.domain.models import Money, ProcurementRequirement, ProductCondition
 from procure_pilot.domain.requirements import (
     ClarificationPlan,
     ClarificationQuestion,
@@ -104,6 +104,75 @@ DEDICATED_CORE_FIELDS = frozenset(
         "delivery_days",
     }
 )
+
+
+_BUDGET_PATTERN = (
+    r"(?:(?:整批|整单|总|合计|全批)\s*)?"
+    r"(?:单台(?:预算|价格)?|单件(?:预算|价格)?|预算)"
+    r"[^\d，,。；;\n]{0,8}(\d{3,7}(?:\.\d{1,2})?)(?!\d)\s*"
+    r"(?:人民币|美元|美金|欧元|港元|日元|usd|eur|hkd|jpy|rmb|cny|元)?"
+)
+
+
+def _budget_mention(text: str) -> tuple[re.Match[str], bool] | None:
+    """Return a current budget and its scope; never divide a total implicitly."""
+    mentions = []
+    for match in re.finditer(_BUDGET_PATTERN, text):
+        prefix = re.split(r"[,，。;；\n]", text[:match.start()])[-1]
+        if re.search(r"上次|去年|历史|之前", prefix) and not re.search(r"本次|这次|现在", prefix):
+            continue
+        amount_start = match.start(1) - match.start()
+        label = match.group(0)[:amount_start]
+        total = bool(re.search(r"(?:整批|整单|总|合计|全批)[^，,。；;\n]{0,8}$", prefix)
+                     or re.search(r"^(?:整批|整单|总|合计|全批)|总额|总共|总计|合计", label))
+        explicit_unit = bool(re.match(r"单台|单件", label)
+                             or re.match(r"\s*每(?:台|件)", text[match.end():]))
+        mentions.append((match, total and not explicit_unit))
+    unit = [mention for mention in mentions if not mention[1]]
+    return unit[0] if unit else mentions[0] if mentions else None
+
+
+def _explicit_currency(quote: str) -> str | None:
+    currencies = {
+        "USD": r"美元|美金|(?<![a-z])usd(?![a-z])",
+        "EUR": r"欧元|(?<![a-z])eur(?![a-z])",
+        "HKD": r"港元|(?<![a-z])hkd(?![a-z])",
+        "JPY": r"日元|(?<![a-z])jpy(?![a-z])",
+        "CNY": r"人民币|(?<![a-z])(?:rmb|cny)(?![a-z])|(?<![美欧港日])元",
+    }
+    found = [currency for currency, pattern in currencies.items() if re.search(pattern, quote.lower())]
+    return found[0] if len(found) == 1 else None
+
+
+def _condition_mentions(text: str) -> list[tuple[re.Match[str], str]]:
+    """Only affirmative condition claims can ground an equality constraint."""
+    mentions = []
+    pattern = r"(?P<qualifier>必须|只能|只接受|仅接受|只要|要求|优先|最好|改为|改成|prefer)?\s*(?P<condition>全新(?:机)?|翻新(?:机)?|二手(?:机)?|\bnew\b|\brefurbished\b|\bused\b)"
+    for match in re.finditer(pattern, text):
+        prefix = re.split(r"[,，。;；\n]|但是|不过|而是|但", text[:match.start()])[-1]
+        negated = re.search(r"(?:不|非)\s*$|(?:不要|不接受|不考虑|拒绝|不买|不要求|不必|无需)[^，,。；;\n]*$|\b(?:not|no)\s*$|(?:do not|don't)(?: accept)?[^,.;\n]*$", prefix)
+        if negated:
+            previous_rejection = prefix[negated.start():]
+            explicit_new_claim = match.group("qualifier") in {"只接受", "仅接受", "必须", "只能", "只要"}
+            if not (explicit_new_claim and re.search(r"全新|翻新|二手", previous_rejection)):
+                continue
+        condition = match.group("condition").removesuffix("机")
+        mentions.append((match, {"全新": "NEW", "翻新": "REFURBISHED", "二手": "USED", "new": "NEW", "refurbished": "REFURBISHED", "used": "USED"}[condition]))
+    return mentions
+
+
+def _quantity_mention(text: str) -> re.Match[str] | None:
+    """Prefer an explicit correction, not simply the last number in a message."""
+    matches = list(re.finditer(r"(?<![\d.])(\d+)\s*(?:台|件)", text))
+    corrections = []
+    for match in matches:
+        prefix = re.split(r"[,，。;；\n]", text[:match.start()])[-1]
+        if re.search(
+            r"(?:改为|改成|调整为|最终(?:只)?(?:采购|需要)?|"
+            r"(?:本次|这次|现在)(?:只)?(?:采购|需要)?)\s*$", prefix
+        ) or (prefix.rstrip().endswith("以") and re.match(r"\s*为准", text[match.end():])):
+            corrections.append(match)
+    return corrections[-1] if corrections else matches[0] if matches else None
 
 
 def _evidence(message_id: str, text: str, match: re.Match[str]) -> RequirementEvidence:
@@ -374,45 +443,62 @@ class RequirementSpecService:
             spec.purpose = _value(purpose, purpose, evidence.evidence_id, 0.95)
             assign("purpose", old, purpose, evidence.evidence_id)
 
-        found = capture(r"(\d+)\s*(?:台|件)")
-        if found:
-            match, evidence = found
+        match = _quantity_mention(normalized)
+        if match is not None:
+            evidence = _evidence(message_id, text, match)
+            spec.evidence.append(evidence)
             value = int(match.group(1))
             old = spec.quantity.normalized_value if spec.quantity else None
             spec.quantity = _value(match.group(0), value, evidence.evidence_id)
             assign("quantity", old, value, evidence.evidence_id)
 
-        found = capture(r"(?:单台(?:预算|价格)?|单件(?:预算|价格)?|预算)[^\d]{0,8}(\d{3,7})\s*(?:元|rmb|cny)?")
-        if found:
-            match, evidence = found
-            amount = Decimal(match.group(1)).quantize(Decimal("0.01"))
-            target = any(token in match.group(0) for token in ("左右", "大概", "最好"))
-            old_value = spec.budget.target if target else spec.budget.maximum
-            sourced = _money(match.group(0), amount, "CNY", evidence.evidence_id)
-            if target:
-                spec.budget.target = sourced
-                assign(
-                    "budget.target",
-                    (
-                        old_value.normalized_value.model_dump(mode="json")
-                        if old_value
-                        else None
-                    ),
-                    sourced.normalized_value.model_dump(mode="json"),
-                    evidence.evidence_id,
-                )
+        budget_mention = _budget_mention(normalized)
+        if budget_mention is not None:
+            match, total_budget = budget_mention
+            evidence = _evidence(message_id, text, match)
+            spec.evidence.append(evidence)
+            if total_budget:
+                # The domain stores a per-item ceiling, not a total budget. Keep
+                # the total in user evidence and ask for its intended unit ceiling.
+                for field in ("maximum", "target"):
+                    old_value = getattr(spec.budget, field)
+                    if old_value is not None:
+                        setattr(spec.budget, field, None)
+                        operations.append(RequirementDeltaOperation(
+                            op="REMOVE", path=f"budget.{field}",
+                            old_value=old_value.normalized_value.model_dump(mode="json"),
+                            evidence_ids=[evidence.evidence_id],
+                        ))
+                spec.field_resolutions.budget_maximum = None
             else:
-                spec.budget.maximum = sourced
-                assign(
-                    "budget.maximum",
-                    (
-                        old_value.normalized_value.model_dump(mode="json")
-                        if old_value
-                        else None
-                    ),
-                    sourced.normalized_value.model_dump(mode="json"),
-                    evidence.evidence_id,
-                )
+                amount = Decimal(match.group(1)).quantize(Decimal("0.01"))
+                target = any(token in match.group(0) for token in ("左右", "大概", "最好"))
+                old_value = spec.budget.target if target else spec.budget.maximum
+                sourced = _money(match.group(0), amount, _explicit_currency(match.group(0)) or "CNY", evidence.evidence_id)
+                if target:
+                    spec.budget.target = sourced
+                    assign(
+                        "budget.target",
+                        (
+                            old_value.normalized_value.model_dump(mode="json")
+                            if old_value
+                            else None
+                        ),
+                        sourced.normalized_value.model_dump(mode="json"),
+                        evidence.evidence_id,
+                    )
+                else:
+                    spec.budget.maximum = sourced
+                    assign(
+                        "budget.maximum",
+                        (
+                            old_value.normalized_value.model_dump(mode="json")
+                            if old_value
+                            else None
+                        ),
+                        sourced.normalized_value.model_dump(mode="json"),
+                        evidence.evidence_id,
+                    )
 
         found = capture(r"(?:不含税|未税|含税)")
         if found:
@@ -471,14 +557,25 @@ class RequirementSpecService:
                 spec, "delivery_days", "LTE", days, strength, evidence.evidence_id
             )
 
-        self._parse_capacity(spec, normalized, text, message_id, "minimum_ram_gb", r"(?:最低|至少|最好|优先|最多|不超过)?\s*(16|32|64|128)\s*(?:g|gb)(?:\s*(?:内存|存储|硬盘))?", operations)
-        self._parse_capacity(spec, normalized, text, message_id, "minimum_storage_gb", r"(?:存储|硬盘)?\s*(?:最低|至少|最好|优先|最多|不超过|改为|改成)?\s*(512|1024|2048)\s*(?:g|gb)(?:\s*(?:存储|硬盘))?", operations, storage=True)
+        self._parse_capacity(spec, normalized, text, message_id, "minimum_ram_gb", r"(?:最低|至少|最好|优先|最多|不超过)?\s*(16|32|64|128)\s*(?:gb|g)(?![a-z])(?:\s*(?:内存|存储|硬盘))?", operations)
+        self._parse_capacity(spec, normalized, text, message_id, "minimum_storage_gb", r"(?:存储|硬盘)?\s*(?:最低|至少|最好|优先|最多|不超过|改为|改成)?\s*(512|1024|2048)\s*(?:gb|g)(?![a-z])(?:\s*(?:存储|硬盘))?", operations, storage=True)
         found = capture(r"(?:最低|至少|最好|优先)?\s*1\s*t(?:b)?")
         if found:
             match, evidence = found
             strength = ConstraintStrength.SOFT if any(x in match.group(0) for x in ("最好", "优先")) else ConstraintStrength.HARD
             self._upsert_constraint(spec, "minimum_storage_gb", "GTE", 1024, strength, evidence.evidence_id)
             operations.append(RequirementDeltaOperation(op="REPLACE", path="minimum_storage_gb", new_value=1024, evidence_ids=[evidence.evidence_id]))
+
+        for match, condition in _condition_mentions(normalized):
+            evidence = _evidence(message_id, text, match)
+            spec.evidence.append(evidence)
+            strength = ConstraintStrength.SOFT if match.group("qualifier") in {"最好", "优先", "prefer"} else ConstraintStrength.HARD
+            operator = "PREFER" if strength == ConstraintStrength.SOFT else "EQ"
+            self._upsert_constraint(spec, "condition", operator, condition, strength, evidence.evidence_id)
+            operations.append(RequirementDeltaOperation(
+                op="REPLACE", path="condition", new_value=condition,
+                evidence_ids=[evidence.evidence_id],
+            ))
 
         for match in re.finditer(
             r"(?:必须|只能|最好|优先)?\s*(windows|macos|linux)", normalized
@@ -687,6 +784,27 @@ class RequirementSpecService:
             for constraint in [*proposed.hard_constraints, *proposed.soft_preferences]:
                 if external_ids.intersection(constraint.evidence_ids) and constraint not in [*base.hard_constraints, *base.soft_preferences]:
                     raise ValueError("External constraint cannot be rewritten by a model")
+        current_quantity = _quantity_mention(text.lower())
+        if (current_quantity is not None and proposed.quantity is not None
+                and proposed.quantity.normalized_value != int(current_quantity.group(1))):
+            raise ValueError("Requirement quantity ignores the current explicit quantity or correction")
+        current_budget = _budget_mention(text.lower())
+        if current_budget is not None and current_budget[1] and (
+            proposed.budget.maximum is not None or proposed.budget.target is not None
+        ):
+            raise ValueError("Total budget cannot be used as a per-item budget without user confirmation")
+        for value in (proposed.budget.maximum, proposed.budget.target):
+            if value is None:
+                continue
+            quotes = " ".join(e.quote for e in proposed.evidence
+                              if e.evidence_id in value.evidence_ids and e.message_id == message_id
+                              and e.kind == "USER")
+            currency = _explicit_currency(quotes)
+            mentions = list(re.finditer(_BUDGET_PATTERN, text.lower()))
+            if currency is None and len(mentions) == 1:
+                currency = _explicit_currency(mentions[0].group(0))
+            if currency is not None and value.normalized_value.currency != currency:
+                raise ValueError("Requirement budget currency conflicts with current user evidence")
         # Numeric values must be present in their exact user evidence. External values are
         # applied by the trusted reference resolver, not invented in a USER quote.
         for value, old in ((proposed.quantity, base.quantity if base else None),
@@ -757,6 +875,25 @@ class RequirementSpecService:
             if op.path.strip("/").split("/", 1)[0] not in derived_delta_roots
             for ref in op.evidence_ids
         }
+        if base is not None and current_budget is not None and current_budget[1]:
+            total_match = current_budget[0]
+            total_refs = {e.evidence_id for e in proposed.evidence
+                          if e.kind == "USER" and e.message_id == message_id
+                          and e.start == total_match.start() and e.end == total_match.end()}
+            for operation in proposed.delta.operations:
+                if operation.op != "REMOVE" or operation.path not in {"budget.maximum", "budget.target"}:
+                    continue
+                field = operation.path.split(".")[1]
+                old_value = getattr(base.budget, field)
+                if (old_value is not None and getattr(proposed.budget, field) is None
+                        and operation.new_value is None and operation.evidence_ids
+                        and set(operation.evidence_ids).issubset(total_refs)
+                        and NormalizedMoneyValue.model_validate(operation.old_value) == old_value.normalized_value):
+                    # Removal has no remaining value to reference. Accept only a
+                    # proven scope change of an existing budget, not arbitrary deltas.
+                    referenced.update(operation.evidence_ids)
+                else:
+                    raise ValueError("Budget removal lacks grounded scope-change evidence")
         if not new_refs.issubset(evidence_ids) or not new_refs.issubset(referenced):
             raise ValueError("Requirement delta contains ungrounded evidence references")
         if proposed.delta.from_version != expected_base or proposed.delta.to_version != proposed.version:
@@ -802,6 +939,8 @@ class RequirementSpecService:
                     if not inherited_default and not inherited_consent and not inherited_reference:
                         self._validate_constraint_value(constraint, quotes)
                 except ValueError:
+                    if constraint.field == "condition" and _condition_mentions(text.lower()):
+                        raise ValueError("Condition proposal conflicts with affirmative current user evidence") from None
                     # Unsupported inferred facts are discarded at the trust boundary.
                     # Required fields will consequently be recomputed as missing.
                     continue
@@ -870,7 +1009,7 @@ class RequirementSpecService:
             merged_paths.add("default_authorizations")
             used_evidence.update(copied.evidence_ids)
 
-        for field in ("minimum_ram_gb", "minimum_storage_gb"):
+        for field in ("minimum_ram_gb", "minimum_storage_gb", "condition"):
             # A preference does not remove a previously confirmed hard floor.
             for inherited in fallback.hard_constraints:
                 if inherited.field != field or base is None or inherited not in base.hard_constraints:
@@ -937,15 +1076,9 @@ class RequirementSpecService:
     ) -> None:
         normalized_quote = quotes.lower()
         if constraint.field == "condition":
-            markers = {
-                "new": ("新", "全新", "new"),
-                "refurbished": ("翻新", "refurb"),
-                "used": ("二手", "used"),
-            }
-            value = str(constraint.value).lower()
-            expected = markers.get(value)
-            if expected is None or not any(token in normalized_quote for token in expected):
-                raise ValueError("Condition constraint is not grounded by its evidence")
+            allowed = {value for _, value in _condition_mentions(normalized_quote)}
+            if str(constraint.value).upper() not in allowed:
+                raise ValueError("Condition constraint is not grounded by affirmative evidence")
         elif constraint.field == "operating_system":
             if str(constraint.value).lower() not in normalized_quote:
                 raise ValueError("Operating-system constraint is not grounded by its evidence")
@@ -1132,6 +1265,7 @@ class RequirementSpecService:
             minimum_ram_gb=(int(hard("minimum_ram_gb")) if hard("minimum_ram_gb") is not None else None),
             minimum_storage_gb=(int(hard("minimum_storage_gb")) if hard("minimum_storage_gb") is not None else None),
             operating_system=(str(hard("operating_system")) if hard("operating_system") is not None else None),
+            condition=(ProductCondition(str(hard("condition")).upper()) if hard("condition") is not None else ProductCondition.NEW),
             field_resolutions={key: item.model_copy(deep=True) for key, item in spec.field_resolutions.items()},
             assumptions=[
                 f"用户授权按公司标准设置{FIELD_LABELS.get(field, field)}为 {hard(field)}GB"

@@ -1,0 +1,27 @@
+{
+  "stage": "边界加固后的最终版本",
+  "status": "no_regression_observed",
+  "changed_factors": [
+    "source_tree_sha256"
+  ],
+  "prompt_only": false,
+  "regressions": {
+    "proposal": [],
+    "final": []
+  },
+  "degraded_checks": [],
+  "note": "Paired descriptive comparison; repeated samples are not independent evidence of production quality.",
+  "token_mean_delta": null,
+  "quality_delta": {
+    "proposal": {
+      "case_exact_match_rate": 0.2666666666666667,
+      "omission_rate": -0.023696682464454975,
+      "wrong_extraction_rate": -0.009478672985781991
+    },
+    "final": {
+      "case_exact_match_rate": 0.2666666666666667,
+      "omission_rate": -0.023696682464454975,
+      "wrong_extraction_rate": -0.009478672985781991
+    }
+  }
+}

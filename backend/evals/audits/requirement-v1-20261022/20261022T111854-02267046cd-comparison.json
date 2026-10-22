@@ -1,0 +1,27 @@
+{
+  "stage": "数量更正",
+  "status": "no_regression_observed",
+  "changed_factors": [
+    "source_tree_sha256"
+  ],
+  "prompt_only": false,
+  "regressions": {
+    "proposal": [],
+    "final": []
+  },
+  "degraded_checks": [],
+  "note": "Paired descriptive comparison; repeated samples are not independent evidence of production quality.",
+  "token_mean_delta": null,
+  "quality_delta": {
+    "proposal": {
+      "case_exact_match_rate": 0.16666666666666674,
+      "omission_rate": -0.01895734597156398,
+      "wrong_extraction_rate": -0.004739336492890996
+    },
+    "final": {
+      "case_exact_match_rate": 0.16666666666666674,
+      "omission_rate": -0.01895734597156398,
+      "wrong_extraction_rate": -0.004739336492890996
+    }
+  }
+}
