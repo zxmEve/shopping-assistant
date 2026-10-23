@@ -1,0 +1,116 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>新留出集：校验前后对比</title><style>body{font:15px system-ui;margin:28px;color:#202a38}table{border-collapse:collapse}td,th{padding:8px;border:1px solid #ccd3dc;white-space:nowrap}pre{white-space:pre-wrap}a{color:#2563eb}</style><h1>24条新留出用例：真实模型评测</h1><p>同一次模型输出分别在后端校验前后评分；final包含补齐与规则兜底。严格错误提取包含归一化拼写差异，诊断结果另列，不替换主分数。单轮合成用例，不是生产准确率。</p><p><a href="report.json">完整原始报告</a> · <a href="case-comparison.csv">逐例CSV</a> · <a href="paired-review.json">指标与诊断JSON</a></p><pre>{
+  &quot;review_version&quot;: &quot;requirement-holdout-v2-paired-review-v1&quot;,
+  &quot;experiment_id&quot;: &quot;20261022T135239-22c85f553f&quot;,
+  &quot;raw_report_sha256&quot;: &quot;bcfd5fa024c13955f18c415e16a6aa975c752d78adf20a8cac303bc70b98da97&quot;,
+  &quot;dataset_sha256&quot;: &quot;12c50fbe1ff6ce0cace1ce8fe8afd251596f9fb118178bbbe78f38aa289a0bf5&quot;,
+  &quot;freeze_sha256&quot;: &quot;4452b10ce552b24476fd8069e691d02cd0130c48ecfe26882430d2520eee4a47&quot;,
+  &quot;configured_provider&quot;: &quot;deepseek&quot;,
+  &quot;configured_model&quot;: &quot;deepseek-v4-flash&quot;,
+  &quot;served_model_identity_independently_verified&quot;: false,
+  &quot;primary_scoring&quot;: &quot;Unchanged frozen v1 scoring, including canonical spelling and evidence/state/delta checks.&quot;,
+  &quot;posthoc_diagnostic&quot;: &quot;Separately classify Shanghai/上海 and Shenzhen/深圳 aliases and operating-system case only. Does not rewrite primary scores, count as a new benchmark, or waive evidence/state/delta failures.&quot;,
+  &quot;phase_counts&quot;: {
+    &quot;proposal&quot;: {
+      &quot;strict_passed&quot;: 0,
+      &quot;expected_facts&quot;: 168,
+      &quot;omissions&quot;: 0,
+      &quot;strict_wrong&quot;: 21,
+      &quot;equivalent_format_mismatches&quot;: 20,
+      &quot;wrong_excluding_format_mismatches&quot;: 1,
+      &quot;unsupported_additions&quot;: 1,
+      &quot;evidence_invalid_cases&quot;: 23,
+      &quot;issue_counts&quot;: {
+        &quot;evidence_invalid&quot;: 23,
+        &quot;clarification_coverage_mismatch&quot;: 12,
+        &quot;missing_fields_mismatch&quot;: 13,
+        &quot;status_mismatch&quot;: 7,
+        &quot;delta_fields_mismatch&quot;: 2
+      }
+    },
+    &quot;final&quot;: {
+      &quot;strict_passed&quot;: 4,
+      &quot;expected_facts&quot;: 168,
+      &quot;omissions&quot;: 10,
+      &quot;strict_wrong&quot;: 21,
+      &quot;equivalent_format_mismatches&quot;: 17,
+      &quot;wrong_excluding_format_mismatches&quot;: 4,
+      &quot;unsupported_additions&quot;: 2,
+      &quot;evidence_invalid_cases&quot;: 0,
+      &quot;issue_counts&quot;: {
+        &quot;clarification_coverage_mismatch&quot;: 6,
+        &quot;missing_fields_mismatch&quot;: 7,
+        &quot;status_mismatch&quot;: 5,
+        &quot;conflicts_mismatch&quot;: 1,
+        &quot;delta_fields_mismatch&quot;: 3
+      }
+    }
+  },
+  &quot;usage&quot;: {
+    &quot;measured&quot;: true,
+    &quot;known_runs&quot;: 24,
+    &quot;incomplete_runs&quot;: 0,
+    &quot;input_tokens_total_known&quot;: 112667,
+    &quot;output_tokens_total_known&quot;: 29037,
+    &quot;estimated_cost_micro_usd_total_known&quot;: 43950,
+    &quot;model_requests_total_known&quot;: 24,
+    &quot;total_tokens_mean_known&quot;: 5904.333333333333
+  },
+  &quot;latency&quot;: {
+    &quot;mean_ms&quot;: 4000.380541666667,
+    &quot;p95_ms&quot;: 5071.053
+  },
+  &quot;latency_by_phase&quot;: {
+    &quot;proposal_duration_ms&quot;: {
+      &quot;mean_ms&quot;: 3998.340833333333,
+      &quot;p95_ms&quot;: 5068.975
+    },
+    &quot;model_duration_ms&quot;: {
+      &quot;mean_ms&quot;: 3978.844625,
+      &quot;p95_ms&quot;: 5049.738
+    },
+    &quot;validation_duration_ms&quot;: {
+      &quot;mean_ms&quot;: 1.5609166666666667,
+      &quot;p95_ms&quot;: 2.766
+    }
+  },
+  &quot;validation_impact&quot;: {
+    &quot;proposal_fail_final_pass&quot;: 4,
+    &quot;proposal_pass_final_fail&quot;: 0,
+    &quot;both_pass&quot;: 0,
+    &quot;both_fail&quot;: 20,
+    &quot;note&quot;: &quot;Final includes deterministic supplementation and fallback, not just rejection of invalid output.&quot;
+  },
+  &quot;fallback_case_ids&quot;: [
+    &quot;newholdout-04&quot;,
+    &quot;newholdout-05&quot;,
+    &quot;newholdout-16&quot;,
+    &quot;newholdout-22&quot;,
+    &quot;newholdout-24&quot;
+  ],
+  &quot;any_fact_metric_worsened_case_ids&quot;: [
+    &quot;newholdout-02&quot;,
+    &quot;newholdout-03&quot;,
+    &quot;newholdout-04&quot;,
+    &quot;newholdout-05&quot;,
+    &quot;newholdout-08&quot;,
+    &quot;newholdout-15&quot;,
+    &quot;newholdout-16&quot;,
+    &quot;newholdout-19&quot;,
+    &quot;newholdout-22&quot;,
+    &quot;newholdout-23&quot;
+  ],
+  &quot;execution_error_count&quot;: 0,
+  &quot;input_tokens_total&quot;: 112667,
+  &quot;output_tokens_total&quot;: 29037,
+  &quot;total_tokens&quot;: 141704,
+  &quot;serial_case_duration_total_ms&quot;: 96009.133,
+  &quot;limitations&quot;: [
+    &quot;Synthetic engineering labels, not business reviewed or representative production samples.&quot;,
+    &quot;One sample per case; no confidence interval, repetitions or provider-version guarantee.&quot;,
+    &quot;Token values are provider-reported via SDK, not an independently reconciled bill.&quot;,
+    &quot;Model time includes SDK, network and parsing; not time-to-first-token.&quot;,
+    &quot;Validation time includes supplementation/fallback; it makes no model requests.&quot;,
+    &quot;No sourcing, tool-quality or full workflow evaluation; fixed base for update cases.&quot;,
+    &quot;The new holdout is now seen and must not be reused as blind evidence after tuning.&quot;
+  ]
+}</pre><table><tr><th>case_id</th><th>proposal_omission_count</th><th>final_omission_count</th><th>proposal_wrong_count</th><th>final_wrong_count</th><th>proposal_passed</th><th>final_passed</th><th>fallback_used</th><th>input_tokens</th><th>output_tokens</th><th>model_duration_ms</th><th>validation_duration_ms</th></tr><tr><td>newholdout-01</td><td>0</td><td>0</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4492</td><td>1064</td><td>3409.155</td><td>4.751</td></tr><tr><td>newholdout-02</td><td>0</td><td>1</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4494</td><td>1234</td><td>4228.244</td><td>2.543</td></tr><tr><td>newholdout-03</td><td>0</td><td>1</td><td>2</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4494</td><td>1238</td><td>4289.663</td><td>2.766</td></tr><tr><td>newholdout-04</td><td>0</td><td>2</td><td>1</td><td>2</td><td>False</td><td>False</td><td>True</td><td>4500</td><td>1193</td><td>3807.391</td><td>1.694</td></tr><tr><td>newholdout-05</td><td>0</td><td>2</td><td>1</td><td>1</td><td>False</td><td>False</td><td>True</td><td>4510</td><td>1120</td><td>4120.304</td><td>0.761</td></tr><tr><td>newholdout-06</td><td>0</td><td>0</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4493</td><td>1063</td><td>3504.626</td><td>0.535</td></tr><tr><td>newholdout-07</td><td>0</td><td>0</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4498</td><td>1484</td><td>5082.184</td><td>0.705</td></tr><tr><td>newholdout-08</td><td>0</td><td>1</td><td>2</td><td>2</td><td>False</td><td>False</td><td>False</td><td>4494</td><td>1437</td><td>4481.959</td><td>0.705</td></tr><tr><td>newholdout-09</td><td>0</td><td>0</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4501</td><td>1346</td><td>4279.559</td><td>0.972</td></tr><tr><td>newholdout-10</td><td>0</td><td>0</td><td>0</td><td>0</td><td>False</td><td>True</td><td>False</td><td>4495</td><td>1084</td><td>3429.179</td><td>0.69</td></tr><tr><td>newholdout-11</td><td>0</td><td>0</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4501</td><td>1079</td><td>3677.664</td><td>0.522</td></tr><tr><td>newholdout-12</td><td>0</td><td>0</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4485</td><td>904</td><td>2805.619</td><td>0.541</td></tr><tr><td>newholdout-13</td><td>0</td><td>0</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4493</td><td>1121</td><td>3576.256</td><td>0.757</td></tr><tr><td>newholdout-14</td><td>0</td><td>0</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4495</td><td>1529</td><td>4819.615</td><td>1.962</td></tr><tr><td>newholdout-15</td><td>0</td><td>1</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4496</td><td>1519</td><td>4827.556</td><td>1.777</td></tr><tr><td>newholdout-16</td><td>0</td><td>2</td><td>1</td><td>0</td><td>False</td><td>False</td><td>True</td><td>4496</td><td>1311</td><td>4339.406</td><td>0.905</td></tr><tr><td>newholdout-17</td><td>0</td><td>0</td><td>1</td><td>1</td><td>False</td><td>False</td><td>False</td><td>4505</td><td>1231</td><td>4352.722</td><td>2.061</td></tr><tr><td>newholdout-18</td><td>0</td><td>0</td><td>3</td><td>3</td><td>False</td><td>False</td><td>False</td><td>4500</td><td>1630</td><td>5049.738</td><td>1.572</td></tr><tr><td>newholdout-19</td><td>0</td><td>0</td><td>0</td><td>0</td><td>False</td><td>False</td><td>False</td><td>5286</td><td>1018</td><td>3233.947</td><td>1.63</td></tr><tr><td>newholdout-20</td><td>0</td><td>0</td><td>0</td><td>0</td><td>False</td><td>True</td><td>False</td><td>5287</td><td>989</td><td>3397.222</td><td>1.65</td></tr><tr><td>newholdout-21</td><td>0</td><td>0</td><td>0</td><td>0</td><td>False</td><td>True</td><td>False</td><td>5285</td><td>1104</td><td>3898.575</td><td>1.649</td></tr><tr><td>newholdout-22</td><td>0</td><td>0</td><td>0</td><td>0</td><td>False</td><td>False</td><td>True</td><td>5295</td><td>1272</td><td>4275.103</td><td>2.604</td></tr><tr><td>newholdout-23</td><td>0</td><td>0</td><td>0</td><td>1</td><td>False</td><td>False</td><td>False</td><td>5286</td><td>1004</td><td>3191.014</td><td>1.322</td></tr><tr><td>newholdout-24</td><td>0</td><td>0</td><td>0</td><td>0</td><td>False</td><td>True</td><td>True</td><td>5286</td><td>1063</td><td>3415.57</td><td>2.388</td></tr></table></html>

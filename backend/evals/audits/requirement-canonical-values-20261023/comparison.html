@@ -1,0 +1,40 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>规范值修复前后对比</title><style>body{font:15px system-ui;margin:28px;color:#202a38}table{border-collapse:collapse}td,th{border:1px solid #cbd5e1;padding:8px}pre{white-space:pre-wrap}</style><h1>后端规范值：严格评分保持不变</h1><p>固定同一批24份真实模型提议：本轮修复前8/24、修复后24/24；19项严格错误降至0。原始提议、证据、标签、评分器及Prompt均保持不变，新增模型请求和token为0。这是已见用例重放，不是生产准确率。</p><p><a href="comparison.json">完整JSON</a> · <a href="case-comparison.csv">逐例CSV</a></p><pre>{
+  &quot;before&quot;: {
+    &quot;runs&quot;: 24,
+    &quot;passed&quot;: 8,
+    &quot;case_exact_match_rate&quot;: 0.3333333333333333,
+    &quot;expected_fact_count&quot;: 168,
+    &quot;fact_accuracy&quot;: 0.8869047619047619,
+    &quot;omission_rate&quot;: 0.0,
+    &quot;wrong_extraction_rate&quot;: 0.1130952380952381,
+    &quot;unsupported_addition_count&quot;: 0,
+    &quot;issue_counts&quot;: {}
+  },
+  &quot;after&quot;: {
+    &quot;runs&quot;: 24,
+    &quot;passed&quot;: 24,
+    &quot;case_exact_match_rate&quot;: 1.0,
+    &quot;expected_fact_count&quot;: 168,
+    &quot;fact_accuracy&quot;: 1.0,
+    &quot;omission_rate&quot;: 0.0,
+    &quot;wrong_extraction_rate&quot;: 0.0,
+    &quot;unsupported_addition_count&quot;: 0,
+    &quot;issue_counts&quot;: {}
+  },
+  &quot;before_wrong_count&quot;: 19,
+  &quot;after_wrong_count&quot;: 0,
+  &quot;checks&quot;: {
+    &quot;full_backend_tests_passed&quot;: 452,
+    &quot;full_backend_tests_skipped&quot;: 1,
+    &quot;full_backend_test_seconds&quot;: 34.23,
+    &quot;new_regression_tests&quot;: 34,
+    &quot;targeted_tests_passed&quot;: 132,
+    &quot;legacy_baseline_passed&quot;: 60,
+    &quot;ruff&quot;: &quot;passed&quot;,
+    &quot;scorer_changed&quot;: false,
+    &quot;gold_labels_changed&quot;: false,
+    &quot;prompt_changed&quot;: false,
+    &quot;new_model_requests&quot;: 0,
+    &quot;new_model_tokens&quot;: 0
+  }
+}</pre><table><tr><th>case_id</th><th>before_passed</th><th>after_passed</th><th>before_wrong</th><th>after_wrong</th><th>before_city</th><th>after_city</th><th>before_systems</th><th>after_systems</th><th>evidence_content_offsets_unchanged</th></tr><tr><td>newholdout-01</td><td>False</td><td>True</td><td>1</td><td>0</td><td>上海</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-02</td><td>False</td><td>True</td><td>1</td><td>0</td><td>深圳</td><td>Shenzhen</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-03</td><td>False</td><td>True</td><td>1</td><td>0</td><td>上海</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-04</td><td>False</td><td>True</td><td>1</td><td>0</td><td>深圳</td><td>Shenzhen</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-05</td><td>False</td><td>True</td><td>1</td><td>0</td><td>上海</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-06</td><td>False</td><td>True</td><td>1</td><td>0</td><td>深圳</td><td>Shenzhen</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-07</td><td>False</td><td>True</td><td>1</td><td>0</td><td>上海</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-08</td><td>False</td><td>True</td><td>2</td><td>0</td><td>深圳</td><td>Shenzhen</td><td>[&quot;Linux&quot;]</td><td>[&quot;linux&quot;]</td><td>True</td></tr><tr><td>newholdout-09</td><td>False</td><td>True</td><td>1</td><td>0</td><td>上海</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-10</td><td>True</td><td>True</td><td>0</td><td>0</td><td>None</td><td>None</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-11</td><td>False</td><td>True</td><td>1</td><td>0</td><td>深圳</td><td>Shenzhen</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-12</td><td>False</td><td>True</td><td>1</td><td>0</td><td>上海</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-13</td><td>False</td><td>True</td><td>1</td><td>0</td><td>深圳</td><td>Shenzhen</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-14</td><td>False</td><td>True</td><td>1</td><td>0</td><td>上海</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-15</td><td>False</td><td>True</td><td>1</td><td>0</td><td>深圳</td><td>Shenzhen</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-16</td><td>True</td><td>True</td><td>0</td><td>0</td><td>Shanghai</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-17</td><td>False</td><td>True</td><td>1</td><td>0</td><td>深圳</td><td>Shenzhen</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-18</td><td>False</td><td>True</td><td>3</td><td>0</td><td>上海</td><td>Shanghai</td><td>[&quot;Windows&quot;, &quot;Linux&quot;]</td><td>[&quot;windows&quot;, &quot;linux&quot;]</td><td>True</td></tr><tr><td>newholdout-19</td><td>True</td><td>True</td><td>0</td><td>0</td><td>Shanghai</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-20</td><td>True</td><td>True</td><td>0</td><td>0</td><td>Shenzhen</td><td>Shenzhen</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-21</td><td>True</td><td>True</td><td>0</td><td>0</td><td>Shanghai</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-22</td><td>True</td><td>True</td><td>0</td><td>0</td><td>Shanghai</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-23</td><td>True</td><td>True</td><td>0</td><td>0</td><td>Shanghai</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr><tr><td>newholdout-24</td><td>True</td><td>True</td><td>0</td><td>0</td><td>Shanghai</td><td>Shanghai</td><td>[]</td><td>[]</td><td>True</td></tr></table></html>

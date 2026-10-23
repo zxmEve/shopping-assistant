@@ -27,6 +27,20 @@ from procure_pilot.domain.requirements import (
     SourcedMoneyValue,
     SourcedRequirementValue,
 )
+from procure_pilot.services.requirement_evidence import (
+    budget_retractions,
+    capacity_mentions,
+    current_matches,
+    is_background,
+    quantity_candidates,
+    quantity_mention,
+    warranty_mentions,
+)
+from procure_pilot.services.requirement_values import (
+    canonical_city,
+    canonical_operating_system,
+    normalize_requirement_values,
+)
 
 
 @dataclass(frozen=True)
@@ -119,6 +133,8 @@ def _budget_mention(text: str) -> tuple[re.Match[str], bool] | None:
     mentions = []
     for match in re.finditer(_BUDGET_PATTERN, text):
         prefix = re.split(r"[,，。;；\n]", text[:match.start()])[-1]
+        if any(m.start() <= match.start() < m.end() for m in budget_retractions(text)):
+            continue
         if re.search(r"上次|去年|历史|之前", prefix) and not re.search(r"本次|这次|现在", prefix):
             continue
         amount_start = match.start(1) - match.start()
@@ -162,17 +178,7 @@ def _condition_mentions(text: str) -> list[tuple[re.Match[str], str]]:
 
 
 def _quantity_mention(text: str) -> re.Match[str] | None:
-    """Prefer an explicit correction, not simply the last number in a message."""
-    matches = list(re.finditer(r"(?<![\d.])(\d+)\s*(?:台|件)", text))
-    corrections = []
-    for match in matches:
-        prefix = re.split(r"[,，。;；\n]", text[:match.start()])[-1]
-        if re.search(
-            r"(?:改为|改成|调整为|最终(?:只)?(?:采购|需要)?|"
-            r"(?:本次|这次|现在)(?:只)?(?:采购|需要)?)\s*$", prefix
-        ) or (prefix.rstrip().endswith("以") and re.match(r"\s*为准", text[match.end():])):
-            corrections.append(match)
-    return corrections[-1] if corrections else matches[0] if matches else None
+    return quantity_mention(text)
 
 
 def _evidence(message_id: str, text: str, match: re.Match[str]) -> RequirementEvidence:
@@ -414,9 +420,10 @@ class RequirementSpecService:
             )
 
         def capture(pattern: str) -> tuple[re.Match[str], RequirementEvidence] | None:
-            match = re.search(pattern, normalized)
-            if not match:
+            matches = current_matches(pattern, normalized)
+            if not matches:
                 return None
+            match = matches[0]
             evidence = _evidence(message_id, text, match)
             spec.evidence.append(evidence)
             return match, evidence
@@ -500,6 +507,23 @@ class RequirementSpecService:
                         evidence.evidence_id,
                     )
 
+        retractions = budget_retractions(normalized)
+        latest_unit = _budget_mention(normalized)
+        if retractions and not (latest_unit and not latest_unit[1]
+                               and latest_unit[0].start() > retractions[-1].end()):
+            evidence = _evidence(message_id, text, retractions[-1])
+            spec.evidence.append(evidence)
+            for field in ("maximum", "target"):
+                previous = getattr(spec.budget, field)
+                if previous is not None:
+                    setattr(spec.budget, field, None)
+                    operations.append(RequirementDeltaOperation(
+                        op="REMOVE", path=f"budget.{field}",
+                        old_value=previous.normalized_value.model_dump(mode="json"),
+                        evidence_ids=[evidence.evidence_id],
+                    ))
+            spec.field_resolutions.budget_maximum = None
+
         found = capture(r"(?:不含税|未税|含税)")
         if found:
             match, evidence = found
@@ -508,10 +532,10 @@ class RequirementSpecService:
             spec.budget.tax_included = _value(match.group(0), included, evidence.evidence_id)
             assign("budget.tax_included", old, included, evidence.evidence_id)
 
-        found = capture(r"(?:送到|交付到|到货到|送)?\s*(雅加达|jakarta|上海|深圳)")
+        found = capture(r"(?:送到|交付到|到货到|送)?\s*(雅加达|jakarta|上海市?|shanghai|深圳市?|shenzhen)(?![a-z])")
         if found:
             match, evidence = found
-            city = {"雅加达": "Jakarta", "jakarta": "Jakarta", "上海": "Shanghai", "深圳": "Shenzhen"}[match.group(1)]
+            city = canonical_city(match.group(1))
             old = spec.delivery_city.normalized_value if spec.delivery_city else None
             spec.delivery_city = _value(match.group(0), city, evidence.evidence_id)
             assign("delivery_city", old, city, evidence.evidence_id)
@@ -534,12 +558,15 @@ class RequirementSpecService:
                     evidence.evidence_id,
                 )
 
-        found = capture(r"(?:保修|质保)\s*(?:至少|最低|不少于)?\s*(\d+)\s*(年|个月|月)")
-        if found:
-            match, evidence = found
-            months = int(match.group(1)) * (12 if match.group(2) == "年" else 1)
-            self._upsert_constraint(spec, "minimum_warranty_months", "GTE", months, ConstraintStrength.HARD, evidence.evidence_id)
-            operations.append(RequirementDeltaOperation(op="REPLACE", path="minimum_warranty_months", new_value=months, evidence_ids=[evidence.evidence_id]))
+        for match, months in warranty_mentions(normalized):
+            evidence = _evidence(message_id, text, match)
+            spec.evidence.append(evidence)
+            self._upsert_constraint(spec, "minimum_warranty_months", "GTE", months,
+                                    ConstraintStrength.HARD, evidence.evidence_id)
+            operations.append(RequirementDeltaOperation(
+                op="REPLACE", path="minimum_warranty_months", new_value=months,
+                evidence_ids=[evidence.evidence_id],
+            ))
 
         days_match = capture(r"(?:最好|优先|必须|最晚)?\s*(?:两周|2\s*周|\d+\s*天)(?:内)?")
         if days_match:
@@ -557,14 +584,28 @@ class RequirementSpecService:
                 spec, "delivery_days", "LTE", days, strength, evidence.evidence_id
             )
 
-        self._parse_capacity(spec, normalized, text, message_id, "minimum_ram_gb", r"(?:最低|至少|最好|优先|最多|不超过)?\s*(16|32|64|128)\s*(?:gb|g)(?![a-z])(?:\s*(?:内存|存储|硬盘))?", operations)
-        self._parse_capacity(spec, normalized, text, message_id, "minimum_storage_gb", r"(?:存储|硬盘)?\s*(?:最低|至少|最好|优先|最多|不超过|改为|改成)?\s*(512|1024|2048)\s*(?:gb|g)(?![a-z])(?:\s*(?:存储|硬盘))?", operations, storage=True)
-        found = capture(r"(?:最低|至少|最好|优先)?\s*1\s*t(?:b)?")
-        if found:
-            match, evidence = found
-            strength = ConstraintStrength.SOFT if any(x in match.group(0) for x in ("最好", "优先")) else ConstraintStrength.HARD
-            self._upsert_constraint(spec, "minimum_storage_gb", "GTE", 1024, strength, evidence.evidence_id)
-            operations.append(RequirementDeltaOperation(op="REPLACE", path="minimum_storage_gb", new_value=1024, evidence_ids=[evidence.evidence_id]))
+        mentions = capacity_mentions(normalized)
+        for field in {item.field for item in mentions}:
+            hard_operators = {item.operator for item in mentions if item.field == field and not item.soft}
+            # A newly stated bound supersedes the same old bound; a soft wish
+            # does not delete an already confirmed hard floor.
+            spec.hard_constraints[:] = [
+                item for item in spec.hard_constraints
+                if item.field != field or item.operator not in hard_operators
+            ]
+        for mention in mentions:
+            evidence = RequirementEvidence(
+                message_id=message_id, quote=text[mention.start:mention.end],
+                start=mention.start, end=mention.end,
+            )
+            spec.evidence.append(evidence)
+            strength = ConstraintStrength.SOFT if mention.soft else ConstraintStrength.HARD
+            self._upsert_constraint(spec, mention.field, mention.operator, mention.value,
+                                    strength, evidence.evidence_id)
+            operations.append(RequirementDeltaOperation(
+                op="REPLACE", path=mention.field, new_value=mention.value,
+                evidence_ids=[evidence.evidence_id],
+            ))
 
         for match, condition in _condition_mentions(normalized):
             evidence = _evidence(message_id, text, match)
@@ -618,43 +659,6 @@ class RequirementSpecService:
         RequirementCompletenessPolicy.refresh(spec)
         spec.clarification_plan.repaired_question_count = 0
         return spec
-
-    @staticmethod
-    def _parse_capacity(
-        spec: RequirementSpec,
-        normalized: str,
-        original: str,
-        message_id: str,
-        field: str,
-        pattern: str,
-        operations: list[RequirementDeltaOperation],
-        *,
-        storage: bool = False,
-    ) -> None:
-        matches = list(re.finditer(pattern, normalized))
-        if matches and (
-            any(
-                any(token in clause for token in ("改为", "改成", "现在", "为准"))
-                and re.search(pattern, clause)
-                for clause in re.split(r"[,，。;；\n]", normalized)
-            )
-            or any(item.field == field for item in spec.conflicts)
-        ):
-            spec.hard_constraints[:] = [item for item in spec.hard_constraints if item.field != field]
-            spec.soft_preferences[:] = [item for item in spec.soft_preferences if item.field != field]
-        for match in matches:
-            value = int(match.group(1))
-            # A bare capacity is RAM by default; storage requires a storage marker.
-            if storage and not any(token in match.group(0) for token in ("存储", "硬盘")):
-                continue
-            if not storage and any(token in match.group(0) for token in ("存储", "硬盘")):
-                continue
-            evidence = _evidence(message_id, original, match)
-            spec.evidence.append(evidence)
-            strength = ConstraintStrength.SOFT if any(x in match.group(0) for x in ("最好", "优先")) else ConstraintStrength.HARD
-            operator = "LTE" if any(x in match.group(0) for x in ("最多", "不超过")) else "GTE"
-            RequirementSpecService._upsert_constraint(spec, field, operator, value, strength, evidence.evidence_id)
-            operations.append(RequirementDeltaOperation(op="REPLACE", path=field, new_value=value, evidence_ids=[evidence.evidence_id]))
 
     @staticmethod
     def _upsert_constraint(
@@ -785,6 +789,14 @@ class RequirementSpecService:
                 if external_ids.intersection(constraint.evidence_ids) and constraint not in [*base.hard_constraints, *base.soft_preferences]:
                     raise ValueError("External constraint cannot be rewritten by a model")
         current_quantity = _quantity_mention(text.lower())
+        quantity_refs = [e for e in proposed.evidence
+                         if proposed.quantity is not None and e.evidence_id in proposed.quantity.evidence_ids
+                         and e.kind == "USER" and e.message_id == message_id]
+        if (current_quantity is None and quantity_refs
+                and all(is_background(text.lower(), e.start, e.end) for e in quantity_refs)):
+            raise ValueError("Background quantity is not a current requirement numeric value")
+        if current_quantity is None and len({m.group(1) for m in quantity_candidates(text.lower())}) > 1 and proposed.quantity is not None:
+            raise ValueError("Ambiguous current quantities require clarification")
         if (current_quantity is not None and proposed.quantity is not None
                 and proposed.quantity.normalized_value != int(current_quantity.group(1))):
             raise ValueError("Requirement quantity ignores the current explicit quantity or correction")
@@ -793,6 +805,11 @@ class RequirementSpecService:
             proposed.budget.maximum is not None or proposed.budget.target is not None
         ):
             raise ValueError("Total budget cannot be used as a per-item budget without user confirmation")
+        retractions = budget_retractions(text.lower())
+        if (retractions and not (current_budget and not current_budget[1]
+                                 and current_budget[0].start() > retractions[-1].end())
+                and (proposed.budget.maximum is not None or proposed.budget.target is not None)):
+            raise ValueError("A withdrawn budget must remain unresolved")
         for value in (proposed.budget.maximum, proposed.budget.target):
             if value is None:
                 continue
@@ -875,25 +892,40 @@ class RequirementSpecService:
             if op.path.strip("/").split("/", 1)[0] not in derived_delta_roots
             for ref in op.evidence_ids
         }
-        if base is not None and current_budget is not None and current_budget[1]:
-            total_match = current_budget[0]
-            total_refs = {e.evidence_id for e in proposed.evidence
-                          if e.kind == "USER" and e.message_id == message_id
-                          and e.start == total_match.start() and e.end == total_match.end()}
-            for operation in proposed.delta.operations:
-                if operation.op != "REMOVE" or operation.path not in {"budget.maximum", "budget.target"}:
-                    continue
-                field = operation.path.split(".")[1]
-                old_value = getattr(base.budget, field)
-                if (old_value is not None and getattr(proposed.budget, field) is None
-                        and operation.new_value is None and operation.evidence_ids
-                        and set(operation.evidence_ids).issubset(total_refs)
-                        and NormalizedMoneyValue.model_validate(operation.old_value) == old_value.normalized_value):
-                    # Removal has no remaining value to reference. Accept only a
-                    # proven scope change of an existing budget, not arbitrary deltas.
-                    referenced.update(operation.evidence_ids)
-                else:
-                    raise ValueError("Budget removal lacks grounded scope-change evidence")
+        for operation in proposed.delta.operations:
+            path = operation.path.strip("/").replace("/", ".")
+            if path not in {"budget.maximum", "budget.target"} or operation.new_value is not None:
+                continue
+            if operation.op not in {"REMOVE", "REPLACE"}:
+                continue
+            old_value = getattr(base.budget, path.split(".")[1]) if base else None
+            scope_change = current_budget is not None and current_budget[1]
+            allowed_spans = (
+                [current_budget[0]] if scope_change else []
+            ) + budget_retractions(text.lower())
+            proof = [e for e in proposed.evidence if e.evidence_id in operation.evidence_ids]
+            grounded = proof and len(proof) == len(set(operation.evidence_ids)) and all(
+                e.kind == "USER" and e.message_id == message_id
+                and any(m.start() <= e.start and e.end <= m.end() for m in allowed_spans)
+                and (bool(budget_retractions(e.quote.lower()))
+                     or (scope_change and e.start == current_budget[0].start()
+                         and e.end == current_budget[0].end()))
+                for e in proof
+            )
+            previous = operation.old_value
+            if isinstance(previous, dict) and "normalized_value" in previous:
+                previous = previous["normalized_value"]
+            try:
+                old_matches = old_value is not None and NormalizedMoneyValue.model_validate(previous) == old_value.normalized_value
+            except ValueError:
+                old_matches = False
+            if (not grounded or not old_matches
+                    or getattr(proposed.budget, path.split(".")[1]) is not None):
+                raise ValueError("Budget removal lacks grounded scope-change evidence")
+            operation.op = "REMOVE"
+            operation.path = path
+            operation.old_value = old_value.normalized_value.model_dump(mode="json")
+            referenced.update(operation.evidence_ids)
         if not new_refs.issubset(evidence_ids) or not new_refs.issubset(referenced):
             raise ValueError("Requirement delta contains ungrounded evidence references")
         if proposed.delta.from_version != expected_base or proposed.delta.to_version != proposed.version:
@@ -946,7 +978,11 @@ class RequirementSpecService:
                     continue
                 grounded.append(constraint)
             setattr(proposed, collection_name, grounded)
+        constraint_ids = [c.constraint_id for c in [*proposed.hard_constraints, *proposed.soft_preferences]]
+        if len(constraint_ids) != len(set(constraint_ids)):
+            raise ValueError("Requirement constraints must have unique IDs")
         validated = proposed.model_copy(deep=True)
+        normalize_requirement_values(validated)
         self._remove_redundant_core_constraints(validated)
         self._canonicalize_delta(validated, message_id=message_id)
         validated.schema_version = "2.0"
@@ -1014,6 +1050,11 @@ class RequirementSpecService:
             for inherited in fallback.hard_constraints:
                 if inherited.field != field or base is None or inherited not in base.hard_constraints:
                     continue
+                current_ids = {e.evidence_id for e in proposed.evidence if e.message_id == message_id}
+                if any(item.field == field and item.operator == inherited.operator
+                       and current_ids.intersection(item.evidence_ids)
+                       for item in proposed.hard_constraints):
+                    continue
                 if any(
                     item.field == field and item.operator == inherited.operator and item.value == inherited.value
                     for item in proposed.hard_constraints
@@ -1080,21 +1121,29 @@ class RequirementSpecService:
             if str(constraint.value).upper() not in allowed:
                 raise ValueError("Condition constraint is not grounded by affirmative evidence")
         elif constraint.field == "operating_system":
-            if str(constraint.value).lower() not in normalized_quote:
+            if str(canonical_operating_system(constraint.value)).casefold() not in normalized_quote:
                 raise ValueError("Operating-system constraint is not grounded by its evidence")
         elif constraint.field in {"brand_preference", "requested_model_text"}:
             if str(constraint.value).lower() not in normalized_quote:
                 raise ValueError(f"{constraint.field} is not grounded by its evidence")
         elif constraint.field == "minimum_warranty_months":
-            match = re.search(r"(?:保修|质保)\s*(?:至少|最低|不少于)?\s*(\d+)\s*(年|个月|月)", normalized_quote)
-            if not match or int(constraint.value) != int(match.group(1)) * (12 if match.group(2) == "年" else 1):
+            values = {months for _, months in warranty_mentions(normalized_quote)}
+            if Decimal(str(constraint.value)) not in values:
                 raise ValueError("Warranty constraint is not grounded by its evidence")
         elif constraint.field in {"minimum_ram_gb", "minimum_storage_gb"}:
-            value = int(constraint.value)
-            grounded = str(value) in normalized_quote
-            if constraint.field == "minimum_storage_gb" and value == 1024:
-                grounded = grounded or bool(re.search(r"1\s*t(?:b)?", normalized_quote))
-            if not grounded:
+            # Compare exact, field-scoped quantities after unit conversion. Never
+            # accept 16 merely because the quote happens to contain 116/1536.
+            mentions = [m for m in capacity_mentions(
+                normalized_quote, default_field=constraint.field
+            ) if m.field == constraint.field]
+            if constraint.operator in {"GTE", "LTE"}:
+                mentions = [m for m in mentions if m.operator == constraint.operator]
+            values = {m.value for m in mentions}
+            if len(values) == 1:
+                # An exact user quote with one field-scoped quantity is a safe
+                # source of canonical units, even if the model used 1000/TB.
+                constraint.value = next(iter(values))
+            elif Decimal(str(constraint.value)) not in values:
                 raise ValueError(f"{constraint.field} is not grounded by its evidence")
 
     @staticmethod
@@ -1141,7 +1190,22 @@ class RequirementSpecService:
         operations: list[RequirementDeltaOperation] = []
         constraint_roots_with_leaf_ops: set[str] = set()
         for operation in spec.delta.operations:
-            parts = [part for part in operation.path.strip("/").split("/") if part]
+            path = operation.path.strip("/")
+            if path.startswith(("hard_constraints.", "soft_preferences.")):
+                path = path.replace(".", "/")
+            parts = [part for part in path.split("/") if part]
+            if len(parts) > 1 and parts[0] in {"hard_constraints", "soft_preferences"}:
+                collection = getattr(spec, parts[0])
+                matches = [c for c in collection if c.constraint_id == parts[1]]
+                if not matches:
+                    value = operation.new_value
+                    expected = value.get("value") if isinstance(value, dict) else value
+                    matches = [c for c in collection if c.field == parts[1]
+                               and (expected is None or c.value == expected)
+                               and set(c.evidence_ids).intersection(operation.evidence_ids)]
+                if len(matches) == 1:
+                    parts = [parts[0], matches[0].constraint_id]
+                    operation = operation.model_copy(update={"new_value": matches[0].model_dump(mode="json")})
             if not parts or parts[0] in derived:
                 continue
             if parts[0] in {"hard_constraints", "soft_preferences"}:
@@ -1259,12 +1323,12 @@ class RequirementSpecService:
                 else None
             ),
             budget_tax_included=(bool(spec.budget.tax_included.normalized_value) if spec.budget.tax_included else None),
-            delivery_city=(str(spec.delivery_city.normalized_value) if spec.delivery_city else None),
+            delivery_city=(str(canonical_city(spec.delivery_city.normalized_value)) if spec.delivery_city else None),
             delivery_days=(int(spec.delivery_days.normalized_value) if spec.delivery_days and not any(marker in " ".join(e.quote for e in spec.evidence if e.evidence_id in spec.delivery_days.evidence_ids) for marker in ("最好", "优先", "倾向")) else None),
             minimum_warranty_months=(int(hard("minimum_warranty_months")) if hard("minimum_warranty_months") else None),
             minimum_ram_gb=(int(hard("minimum_ram_gb")) if hard("minimum_ram_gb") is not None else None),
             minimum_storage_gb=(int(hard("minimum_storage_gb")) if hard("minimum_storage_gb") is not None else None),
-            operating_system=(str(hard("operating_system")) if hard("operating_system") is not None else None),
+            operating_system=(str(canonical_operating_system(hard("operating_system"))) if hard("operating_system") is not None else None),
             condition=(ProductCondition(str(hard("condition")).upper()) if hard("condition") is not None else ProductCondition.NEW),
             field_resolutions={key: item.model_copy(deep=True) for key, item in spec.field_resolutions.items()},
             assumptions=[

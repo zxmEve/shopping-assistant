@@ -1,0 +1,25 @@
+﻿case_id,before_passed,after_passed,before_wrong,after_wrong,before_omissions,after_omissions,before_additions,after_additions,before_city,after_city,before_systems,after_systems,evidence_content_offsets_unchanged,evidence_ids_unchanged,proposal_unchanged,before_fallback,after_fallback,before_backend_replay_ms,after_backend_replay_ms,replay_new_model_requests,replay_new_model_tokens
+newholdout-01,False,True,1,0,0,0,0,0,上海,Shanghai,[],[],True,True,True,False,False,2.313,2.358,0,0
+newholdout-02,False,True,1,0,0,0,0,0,深圳,Shenzhen,[],[],True,True,True,False,False,0.636,0.685,0,0
+newholdout-03,False,True,1,0,0,0,0,0,上海,Shanghai,[],[],True,True,True,False,False,1.02,1.054,0,0
+newholdout-04,False,True,1,0,0,0,0,0,深圳,Shenzhen,[],[],True,True,True,False,False,0.739,0.756,0,0
+newholdout-05,False,True,1,0,0,0,0,0,上海,Shanghai,[],[],True,True,True,False,False,0.599,0.665,0,0
+newholdout-06,False,True,1,0,0,0,0,0,深圳,Shenzhen,[],[],True,True,True,False,False,0.478,0.531,0,0
+newholdout-07,False,True,1,0,0,0,0,0,上海,Shanghai,[],[],True,True,True,False,False,0.832,0.837,0,0
+newholdout-08,False,True,2,0,0,0,0,0,深圳,Shenzhen,"[""Linux""]","[""linux""]",True,True,True,False,False,0.7,0.716,0,0
+newholdout-09,False,True,1,0,0,0,0,0,上海,Shanghai,[],[],True,True,True,False,False,0.848,0.87,0,0
+newholdout-10,True,True,0,0,0,0,0,0,,,[],[],True,True,True,False,False,0.549,0.547,0,0
+newholdout-11,False,True,1,0,0,0,0,0,深圳,Shenzhen,[],[],True,True,True,False,False,0.515,0.53,0,0
+newholdout-12,False,True,1,0,0,0,0,0,上海,Shanghai,[],[],True,True,True,False,False,0.39,0.409,0,0
+newholdout-13,False,True,1,0,0,0,0,0,深圳,Shenzhen,[],[],True,True,True,False,False,0.552,0.575,0,0
+newholdout-14,False,True,1,0,0,0,0,0,上海,Shanghai,[],[],True,True,True,False,False,0.743,0.681,0,0
+newholdout-15,False,True,1,0,0,0,0,0,深圳,Shenzhen,[],[],True,True,True,False,False,0.613,0.617,0,0
+newholdout-16,True,True,0,0,0,0,0,0,Shanghai,Shanghai,[],[],True,False,True,True,True,0.746,0.771,0,0
+newholdout-17,False,True,1,0,0,0,0,0,深圳,Shenzhen,[],[],True,True,True,False,False,0.52,0.522,0,0
+newholdout-18,False,True,3,0,0,0,0,0,上海,Shanghai,"[""Windows"", ""Linux""]","[""windows"", ""linux""]",True,True,True,False,False,0.634,0.69,0,0
+newholdout-19,True,True,0,0,0,0,0,0,Shanghai,Shanghai,[],[],True,True,True,False,False,0.494,0.533,0,0
+newholdout-20,True,True,0,0,0,0,0,0,Shenzhen,Shenzhen,[],[],True,True,True,False,False,0.457,0.497,0,0
+newholdout-21,True,True,0,0,0,0,0,0,Shanghai,Shanghai,[],[],True,True,True,False,False,0.464,0.505,0,0
+newholdout-22,True,True,0,0,0,0,0,0,Shanghai,Shanghai,[],[],True,True,True,False,False,0.495,0.537,0,0
+newholdout-23,True,True,0,0,0,0,0,0,Shanghai,Shanghai,[],[],True,True,True,False,False,0.394,0.431,0,0
+newholdout-24,True,True,0,0,0,0,0,0,Shanghai,Shanghai,[],[],True,False,True,True,True,0.758,0.79,0,0

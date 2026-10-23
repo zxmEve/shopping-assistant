@@ -1,0 +1,7 @@
+{
+  "source_report": "backend/evals/audits/requirement-holdout-v2-live/20261022T135239-22c85f553f/report.json",
+  "source_report_sha256": "bcfd5fa024c13955f18c415e16a6aa975c752d78adf20a8cac303bc70b98da97",
+  "dataset_sha256": "12c50fbe1ff6ce0cace1ce8fe8afd251596f9fb118178bbbe78f38aa289a0bf5",
+  "scorer_sha256": "3c00f260901e3cbcd53602b2720017e906d58a22c5dcf44559f150c5efae825c",
+  "method": "Replay the identical saved proposal_spec and base fixture through current validate/propose fallback; no new model calls; do not reuse original token/latency as new measurements."
+}

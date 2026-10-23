@@ -1,0 +1,112 @@
+"""Rebuild the canonical-value review from saved reports; no model calls."""
+from pathlib import Path
+import csv
+import hashlib
+import html
+import json
+
+root=Path.cwd()
+archive=root/'backend/evals/audits/requirement-canonical-values-20261023'
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def read(path):
+    return json.loads(path.read_text())
+
+
+lock=read(archive/'source-lock.json')
+index=read(archive/'final-index.json')
+before_path=root/lock['before_replay']
+after_path=root/index['final_replay']
+before=read(before_path)
+after=read(after_path)
+source=read(root/lock['original_live_report'])
+assert sha(before_path)==lock['before_replay_sha256']
+assert sha(root/lock['previous_final_replay'])==lock['previous_final_sha256']
+assert sha(root/lock['original_live_report'])==lock['original_live_sha256']
+assert sha(root/'backend/evals/datasets/requirement_holdout_v2.json')==lock['dataset_sha256']
+assert sha(root/'backend/src/procure_pilot/evals/requirements.py')==lock['scorer_sha256']
+assert sha(root/'backend/src/procure_pilot/agents/provider_adapter.py')==lock['adapter_sha256']
+assert before['dataset_sha256']==after['dataset_sha256']==lock['dataset_sha256']
+assert before['scorer_sha256']==after['scorer_sha256']==lock['scorer_sha256']
+for name,expected in after['source_files'].items():
+    assert sha(root/'backend'/name)==expected,name
+checks=read(archive/'validation-checks.json')
+rows=[]
+changed_values=[]
+regressions=[]
+new_issues=[]
+same_evidence_ids=0
+for b,a,original in zip(before['results'],after['results'],source['results'],strict=True):
+    assert b['case_id']==a['case_id']==original['case_id']
+    assert b['proposal_spec']==a['proposal_spec']==original['proposal_spec']
+    assert b['input_sha256']==a['input_sha256']==original['input_sha256']
+    p,f=b['final'],a['final']
+    if any(f[k]>p[k] for k in ['omission_count','wrong_count','addition_count']) or (p['passed'] and not f['passed']):
+        regressions.append(a['case_id'])
+    if set(f['issues'])-set(p['issues']):
+        new_issues.append(a['case_id'])
+    bv,av=b['final_spec'],a['final_spec']
+    def evidence_content(spec):
+        return sorted(json.dumps({k:v for k,v in e.items() if k!='evidence_id'},ensure_ascii=False,sort_keys=True) for e in spec['evidence'])
+    assert evidence_content(bv)==evidence_content(av),a['case_id']
+    ids_unchanged=bv['evidence']==av['evidence']
+    same_evidence_ids+=ids_unchanged
+    if bv['delivery_city']:
+        assert bv['delivery_city']['value']==av['delivery_city']['value']
+    before_systems=[c['value'] for c in [*bv['hard_constraints'],*bv['soft_preferences']] if c['field']=='operating_system']
+    after_systems=[c['value'] for c in [*av['hard_constraints'],*av['soft_preferences']] if c['field']=='operating_system']
+    bc=bv['delivery_city']['normalized_value'] if bv['delivery_city'] else None
+    ac=av['delivery_city']['normalized_value'] if av['delivery_city'] else None
+    row=dict(case_id=a['case_id'],before_passed=p['passed'],after_passed=f['passed'],
+             before_wrong=p['wrong_count'],after_wrong=f['wrong_count'],
+             before_omissions=p['omission_count'],after_omissions=f['omission_count'],
+             before_additions=p['addition_count'],after_additions=f['addition_count'],
+             before_city=bc,after_city=ac,
+             before_systems=json.dumps(before_systems,ensure_ascii=False),after_systems=json.dumps(after_systems,ensure_ascii=False),
+             evidence_content_offsets_unchanged=True,evidence_ids_unchanged=ids_unchanged,proposal_unchanged=True,
+             before_fallback=b['fallback_used'],after_fallback=a['fallback_used'],
+             before_backend_replay_ms=b['validation_duration_ms'],after_backend_replay_ms=a['validation_duration_ms'],
+             replay_new_model_requests=0,replay_new_model_tokens=0)
+    rows.append(row)
+    if bc!=ac or before_systems!=after_systems:
+        changed_values.append(a['case_id'])
+assert not regressions and not new_issues
+assert after['final']['passed']==24 and not after['final']['issue_counts']
+legacy_path=root/index['legacy_regression']
+legacy=read(legacy_path)
+assert legacy['final']['passed']==60
+summary=dict(review_version='requirement-canonical-values-v1',review_date='2026-10-23',
+             method='Replay identical saved live proposals. The before column is the previous 8/24 validator, not the original 4/24 validator.',
+             original_live_report=lock['original_live_report'],original_live_report_sha256=lock['original_live_sha256'],
+             previous_final_replay=lock['previous_final_replay'],previous_final_sha256=lock['previous_final_sha256'],
+             before_report=lock['before_replay'],before_report_sha256=sha(before_path),
+             after_report=index['final_replay'],after_report_sha256=sha(after_path),
+             dataset_sha256=lock['dataset_sha256'],scorer_sha256=lock['scorer_sha256'],adapter_sha256=lock['adapter_sha256'],
+             primary_scoring='Original strict v1 scorer and byte-identical gold labels. No alias equivalence applied by the evaluator.',
+             before=before['final'],after=after['final'],
+             before_wrong_count=sum(r['final']['wrong_count'] for r in before['results']),
+             after_wrong_count=sum(r['final']['wrong_count'] for r in after['results']),
+             canonical_value_changed_case_ids=changed_values,
+             before_fallback_count=before['fallback_count'],after_fallback_count=after['fallback_count'],
+             regressions=regressions,new_issue_cases=new_issues,
+             original_proposals_preserved=24,evidence_content_offsets_unchanged_cases=24,evidence_ids_unchanged_cases=same_evidence_ids,
+             new_model_requests=0,new_model_tokens=0,
+             source_live_usage_not_remeasured=source['usage'],
+             before_backend_replay_latency=before['replay_latency'],after_backend_replay_latency=after['replay_latency'],
+             legacy_report=index['legacy_regression'],legacy_report_sha256=sha(legacy_path),checks=checks,
+             limitations=['Seen synthetic regression set, not independent blind evaluation or production accuracy.','No new provider sampling or token measurement; original live usage remains historical.','Fallback reconstruction generates fresh evidence IDs; content and offsets remain equal. Canonicalization itself does not change IDs.','Only exact registered aliases; unknown names, versions, permissions and evidence checks retain their existing boundaries.'])
+(archive/'comparison.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
+with (archive/'case-comparison.csv').open('w',encoding='utf-8-sig',newline='') as stream:
+    writer=csv.DictWriter(stream,fieldnames=list(rows[0]), lineterminator='\n');writer.writeheader();writer.writerows(rows)
+columns=['case_id','before_passed','after_passed','before_wrong','after_wrong','before_city','after_city','before_systems','after_systems','evidence_content_offsets_unchanged']
+table=''.join('<tr>'+''.join('<td>'+html.escape(str(row[k]))+'</td>' for k in columns)+'</tr>' for row in rows)
+page='''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>规范值修复前后对比</title><style>body{font:15px system-ui;margin:28px;color:#202a38}table{border-collapse:collapse}td,th{border:1px solid #cbd5e1;padding:8px}pre{white-space:pre-wrap}</style><h1>后端规范值：严格评分保持不变</h1><p>固定同一批24份真实模型提议：本轮修复前8/24、修复后24/24；19项严格错误降至0。原始提议、证据、标签、评分器及Prompt均保持不变，新增模型请求和token为0。这是已见用例重放，不是生产准确率。</p><p><a href="comparison.json">完整JSON</a> · <a href="case-comparison.csv">逐例CSV</a></p>'''
+page+='<pre>'+html.escape(json.dumps({k:summary[k] for k in ['before','after','before_wrong_count','after_wrong_count','checks']},ensure_ascii=False,indent=2))+'</pre>'
+page+='<table><tr>'+''.join('<th>'+c+'</th>' for c in columns)+'</tr>'+table+'</table></html>'
+(archive/'comparison.html').write_text(page)
+(archive/'README.md').write_text('''# 后端规范值修复归档（2026-10-23）\n\n- [完整对比JSON](comparison.json)、[逐例CSV](case-comparison.csv)、[可读HTML](comparison.html)。\n- [修复前来源锁定](source-lock.json)、[最终报告索引](final-index.json)、[回归检查](validation-checks.json)。\n- `before-replay/`为本轮修改前重新执行的8/24结果，24条均与上轮最终报告复现一致。\n- `after-replay/`为规范值修复后的原严格评分结果24/24。两列不是重新采样模型。\n- `legacy-regression/`保存原60条基线回归；`.py.txt`保存修复前后源码。\n- 原始live报告、上轮8/24报告及上轮对比均保持原始字节；本轮报告在新目录保存。\n\n在项目根目录执行`python3 backend/evals/audits/requirement-canonical-values-20261023/build_comparison.py.txt`可复算本次展示文件，无需模型。\n\n详见[实现与验证说明](../../../../docs/25-requirement-canonical-values.md)。\n''')
+print(json.dumps(dict(before_passed=before['final']['passed'],after_passed=after['final']['passed'],before_wrong=summary['before_wrong_count'],after_wrong=summary['after_wrong_count'],changed_cases=changed_values,regressions=regressions,checks=checks),ensure_ascii=False,indent=2))

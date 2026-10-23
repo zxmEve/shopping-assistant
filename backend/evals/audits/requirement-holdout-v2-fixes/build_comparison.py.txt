@@ -1,0 +1,127 @@
+"""Build immutable-source paired diagnostics. Run from the project root."""
+from pathlib import Path
+import csv
+import hashlib
+import html
+import json
+
+
+ROOT = Path.cwd()
+ARCHIVE = ROOT/'backend/evals/audits/requirement-holdout-v2-fixes'
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def read(path):
+    return json.loads(path.read_text())
+
+
+def equivalent(wrong):
+    a,b=wrong['expected'],wrong['actual']
+    if any(a[k]!=b[k] for k in ['field','operator','strength']):
+        return False
+    if not isinstance(a['value'],str) or not isinstance(b['value'],str):
+        return False
+    x,y=a['value'].casefold(),b['value'].casefold()
+    if a['field']=='delivery_city':
+        cities={'上海':'shanghai','shanghai':'shanghai','深圳':'shenzhen','shenzhen':'shenzhen'}
+        return cities.get(x) is not None and cities.get(x)==cities.get(y)
+    return a['field']=='operating_system' and x in {'linux','windows','macos'} and x==y
+
+
+def values(spec):
+    return dict(quantity=spec['quantity']['normalized_value'] if spec['quantity'] else None,
+                category=spec['category']['normalized_value'] if spec['category'] else None,
+                budget=spec['budget']['maximum']['normalized_value'] if spec['budget']['maximum'] else None,
+                constraints=[{k:c[k] for k in ['field','operator','value','strength']} for c in spec['hard_constraints']],
+                status=spec['status'])
+
+
+lock=read(ARCHIVE/'source-lock.json')
+source_path=ROOT/lock['source_report']
+assert sha(source_path)==lock['source_report_sha256']
+source=read(source_path)
+index=read(ARCHIVE/'final-index.json')
+after_path=ROOT/index['final_replay']
+after=read(after_path)
+before_path=sorted((ARCHIVE/'before-replay').glob('*/replay.json'))[-1]
+before=read(before_path)
+assert all(r['original_final_score_reproduced'] and r['original_final_facts_reproduced'] for r in before['results'])
+assert before['source_report_sha256']==after['source_report_sha256']==sha(source_path)
+assert before['dataset_sha256']==after['dataset_sha256']==lock['dataset_sha256']
+assert before['scorer_sha256']==after['scorer_sha256']==lock['scorer_sha256']
+assert sha(ROOT/'backend/src/procure_pilot/services/requirement_validation.py')==after['validator_sha256']
+for name,expected in after['source_files'].items():
+    assert sha(ROOT/'backend'/name)==expected,name
+originals={(r['case_id'],r['repetition']):r for r in source['results']}
+rows=[]
+detail=[]
+new_issues=[]
+for row in after['results']:
+    old=originals[(row['case_id'],row['repetition'])]
+    assert row['proposal_spec']==old['proposal_spec'] and row['proposal']==old['proposal']
+    assert row['input_sha256']==old['input_sha256']
+    p,f=old['final'],row['final']
+    issues=sorted(set(f['issues'])-set(p['issues']))
+    if issues:
+        new_issues.append(dict(case_id=row['case_id'],issues=issues))
+    simple=dict(case_id=row['case_id'],message=row['input_messages']['msg_current'],
+                before_passed=p['passed'],after_passed=f['passed'],
+                before_omissions=p['omission_count'],after_omissions=f['omission_count'],
+                before_wrong=p['wrong_count'],after_wrong=f['wrong_count'],
+                before_additions=p['addition_count'],after_additions=f['addition_count'],
+                before_fallback=old['fallback_used'],after_fallback=row['fallback_used'],
+                before_values=json.dumps(values(old['final_spec']),ensure_ascii=False),
+                after_values=json.dumps(values(row['final_spec']),ensure_ascii=False),
+                source_live_input_tokens=old['usage']['input_tokens'],
+                source_live_output_tokens=old['usage']['output_tokens'],
+                source_live_model_duration_ms=old['model_duration_ms'],
+                replay_new_model_requests=0,replay_new_model_tokens=0,
+                after_validation_replay_ms=row['validation_duration_ms'])
+    rows.append(simple)
+    detail.append(dict(case_id=row['case_id'],before=p,after=f,original_proposal_unchanged=True,
+                       before_values=values(old['final_spec']),after_values=values(row['final_spec'])))
+
+formats={}
+for phase in ['before','after']:
+    scores=[r['original_final'] if phase=='before' else r['final'] for r in after['results']]
+    wrong=[w for s in scores for w in s['wrong']]
+    count=sum(equivalent(w) for w in wrong)
+    formats[phase]=dict(equivalent_format_mismatches=count,other_wrong=len(wrong)-count)
+assert not after['worsened_case_ids'] and not new_issues
+assert formats['after']['other_wrong']==0
+legacy_path=ROOT/index['legacy_regression']
+legacy=read(legacy_path)
+assert legacy['final']['passed']==60
+checks=read(ARCHIVE/'validation-checks.json')
+summary=dict(review_version='requirement-holdout-v2-fix-comparison-v1',
+             method='Validation replay of identical saved live proposals; no new provider sampling.',
+             original_live_report=lock['source_report'], original_live_report_sha256=sha(source_path),
+             before_reproduced_report=str(before_path.relative_to(ROOT)),before_reproduced_sha256=sha(before_path),
+             final_replay_report=index['final_replay'],final_replay_sha256=sha(after_path),
+             dataset_sha256=after['dataset_sha256'],scorer_sha256=after['scorer_sha256'],
+             original_proposals_preserved=24,historical_cases_reproduced=24,
+             comparison=after['comparison'],format_diagnostics=formats,
+             before_fallback_count=source['fallback_count'],after_fallback_count=after['fallback_count'],
+             worsened_case_ids=after['worsened_case_ids'],new_issue_types_by_case=new_issues,
+             changed_score_case_ids=[r['case_id'] for r in after['results'] if r['final']!=r['original_final']],
+             new_model_requests=0,new_model_tokens=0,
+             original_live_usage_not_remeasured=source['usage'],
+             before_backend_replay_latency=before['replay_latency'],after_backend_replay_latency=after['replay_latency'],
+             legacy_report=index['legacy_regression'],legacy_report_sha256=sha(legacy_path),
+             legacy_cases_passed=60,checks=checks,
+             remaining='19 strict wrong facts across 16 cases are only known city aliases and operating-system case. Primary labels/scorer unchanged; not a new model-quality or blind generalization measurement.',
+             cases=detail)
+(ARCHIVE/'comparison.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
+with (ARCHIVE/'case-comparison.csv').open('w',encoding='utf-8-sig',newline='') as stream:
+    writer=csv.DictWriter(stream,fieldnames=list(rows[0]), lineterminator='\n'); writer.writeheader(); writer.writerows(rows)
+heads=['case_id','before_passed','after_passed','before_omissions','after_omissions','before_wrong','after_wrong','before_additions','after_additions','before_fallback','after_fallback']
+body=''.join('<tr>'+''.join('<td>'+html.escape(str(row[k]))+'</td>' for k in heads)+'</tr>' for row in rows)
+page='''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>需求校验修复前后对比</title><style>body{font:15px system-ui;margin:28px;color:#202a38}pre{white-space:pre-wrap}table{border-collapse:collapse}td,th{padding:8px;border:1px solid #cbd5e1}</style><h1>需求校验修复：同输出重放</h1><p>固定原始24份真实模型提议，比较旧校验器与修复后的校验器。本轮新增模型请求和token均为0；严格错误仍包含城市别名及系统大小写。未修改原始报告、标签或评分器。</p><p><a href="case-comparison.csv">逐例CSV</a> · <a href="comparison.json">完整对比JSON</a></p>'''
+page+='<pre>'+html.escape(json.dumps({k:summary[k] for k in ['comparison','format_diagnostics','before_fallback_count','after_fallback_count','checks']},ensure_ascii=False,indent=2))+'</pre>'
+page+='<table><tr>'+''.join('<th>'+h+'</th>' for h in heads)+'</tr>'+body+'</table></html>'
+(ARCHIVE/'comparison.html').write_text(page)
+(ARCHIVE/'README.md').write_text('''# 需求校验修复证据\n\n本目录使用同一批原始模型输出做验证层重放，不调用模型。\n\n- [最终对比JSON](comparison.json)、[逐例CSV](case-comparison.csv)、[可读HTML](comparison.html)。\n- [来源锁定记录](source-lock.json)、[最终报告索引](final-index.json)、[检查记录](validation-checks.json)。\n- 修复前源码与修复后校验器/证据解析器以`.py.txt`保存，不参与运行。\n- `before-replay/`使用匹配原始live源码哈希的旧校验器，24条的最终评分和事实全部复现。\n- `after-replay/`与`final-replay/`保留各次独立运行；仅以`final-index.json`指向的结果为最终结果。调试中间版本曾使“保留16GB硬下限、增加32GB软偏好”的用例退化，该问题已修复并增加回归。\n- `legacy-regression/`为原60条基线的修复后运行结果。所有报告按实验ID单独保存，没有覆盖原始live报告。\n\n复算展示文件：在项目根目录执行`python3 backend/evals/audits/requirement-holdout-v2-fixes/build_comparison.py.txt`，无需模型。\n\n详细根因、实现和复现命令见[修复说明](../../../../docs/24-requirement-validation-fixes.md)。\n''')
+print(json.dumps({k:summary[k] for k in ['comparison','format_diagnostics','changed_score_case_ids','worsened_case_ids','checks']},ensure_ascii=False,indent=2))

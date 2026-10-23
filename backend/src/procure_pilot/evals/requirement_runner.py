@@ -10,6 +10,7 @@ import importlib.metadata
 import json
 import math
 import subprocess
+import sys
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -120,7 +121,9 @@ def make_base(run_id: str) -> RequirementSpec:
     )
 
 
-def _manifest(dataset_path, cases, mode, provider, model, prompt, repetitions):
+def _manifest(
+    dataset_path, cases, mode, provider, model, prompt, repetitions, case_timeout_seconds
+):
     source_hashes = {
         str(path.relative_to(BACKEND_ROOT)): digest(path.read_bytes())
         for root in ("src", "config", "fixtures")
@@ -156,6 +159,7 @@ def _manifest(dataset_path, cases, mode, provider, model, prompt, repetitions):
         context_policy="project default; empty memory store",
         tools="registered project tools; no reference authorization",
         validation_fallback="current deterministic proposal+validation",
+        case_timeout_seconds=case_timeout_seconds if mode == "live" else None,
         output_repair="existing provider adapter behavior",
     )
     return dict(
@@ -199,8 +203,15 @@ async def run_requirement_evaluation(
     provider: str = "deepseek",
     model: str = "",
     endpoint_hash: str | None = None,
+    case_timeout_seconds: float = 120,
+    progress: bool = False,
 ) -> tuple[dict, Path]:
-    if mode not in {"offline", "live"} or repetitions < 1:
+    if (
+        mode not in {"offline", "live"}
+        or repetitions < 1
+        or not math.isfinite(case_timeout_seconds)
+        or case_timeout_seconds <= 0
+    ):
         raise ValueError("Invalid mode or repetition count")
     if mode == "live" and adapter is None:
         raise ValueError("Live evaluation requires an explicitly configured model adapter")
@@ -226,12 +237,24 @@ async def run_requirement_evaluation(
         if not isinstance(actual_instructions, str):
             raise ValueError("This evaluator requires static, inspectable Agent instructions")
         effective_prompt = actual_instructions
-    manifest = _manifest(dataset_path, cases, mode, provider, model, effective_prompt, repetitions)
+    manifest = _manifest(
+        dataset_path,
+        cases,
+        mode,
+        provider,
+        model,
+        effective_prompt,
+        repetitions,
+        case_timeout_seconds,
+    )
     manifest["endpoint_sha256"] = endpoint_hash
     experiment_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S") + "-" + uuid4().hex[:10]
     artifact_dir = output_root / experiment_id
     artifact_dir.mkdir(parents=True, exist_ok=False)
     (artifact_dir / "prompt.txt").write_text(effective_prompt, encoding="utf-8")
+    (artifact_dir / "manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     service = RequirementSpecService()
     results = []
     for case in cases:
@@ -252,6 +275,10 @@ async def run_requirement_evaluation(
             proposal_started = started
             proposal_ms = 0.0
             envelope_json = None
+            model_started = None
+            model_ms = None
+            validation_started = None
+            validation_ms = None
             if mode == "live":
                 # Clear per-attempt pointers so a failure cannot borrow prior usage.
                 adapter.last_execution = None
@@ -310,11 +337,18 @@ async def run_requirement_evaluation(
                         requirement_schema=RequirementCompletenessPolicy.schema_snapshot(),
                     )
                     envelope_json = envelope.model_dump(mode="json")
-                    call = await adapter.execute_agent(
-                        envelope,
-                        context=context,
-                        allowed_tools=AGENT_TOOL_ALLOWLIST[AgentKind.REQUIREMENT],
-                    )
+                    model_started = time.perf_counter()
+                    try:
+                        call = await asyncio.wait_for(
+                            adapter.execute_agent(
+                                envelope,
+                                context=context,
+                                allowed_tools=AGENT_TOOL_ALLOWLIST[AgentKind.REQUIREMENT],
+                            ),
+                            timeout=case_timeout_seconds,
+                        )
+                    finally:
+                        model_ms = (time.perf_counter() - model_started) * 1000
                     usage = dict(
                         input_tokens=call.usage.input_tokens,
                         output_tokens=call.usage.output_tokens,
@@ -327,6 +361,7 @@ async def run_requirement_evaluation(
                         raise ValueError("Provider omitted RequirementSpec")
                 proposal_ms = (time.perf_counter() - proposal_started) * 1000
                 # validate mutates the input; preserve the original semantic proposal.
+                validation_started = time.perf_counter()
                 try:
                     final = service.validate(
                         proposed.model_copy(deep=True),
@@ -352,6 +387,10 @@ async def run_requirement_evaluation(
             except Exception as exc:
                 failure = type(exc).__name__
             finally:
+                if validation_started is not None:
+                    validation_ms = (time.perf_counter() - validation_started) * 1000
+                elif proposal_ms == 0:
+                    proposal_ms = (time.perf_counter() - proposal_started) * 1000
                 if mode == "live":
                     provider_output = getattr(adapter, "last_model_output", [])
                     if usage is None:
@@ -405,8 +444,32 @@ async def run_requirement_evaluation(
                 usage_complete=(mode == "live" and failure is None and usage is not None),
                 duration_ms=round((time.perf_counter() - started) * 1000, 3),
                 proposal_duration_ms=round(proposal_ms, 3),
+                model_duration_ms=round(model_ms, 3) if model_ms is not None else None,
+                validation_duration_ms=round(validation_ms, 3)
+                if validation_ms is not None
+                else None,
             )
             results.append(result)
+            # Save each completed attempt before the final aggregate, including failures.
+            with (artifact_dir / "results.jsonl").open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(result, ensure_ascii=False) + "\n")
+            if progress:
+                print(
+                    json.dumps(
+                        {
+                            "completed": len(results),
+                            "total": len(cases) * repetitions,
+                            "case_id": case.case_id,
+                            "error_type": failure,
+                            "proposal_passed": result["proposal"]["passed"],
+                            "final_passed": result["final"]["passed"],
+                            "duration_ms": result["duration_ms"],
+                        },
+                        ensure_ascii=False,
+                    ),
+                    file=sys.stderr,
+                    flush=True,
+                )
     known_usage = [item["usage"] for item in results if item["usage"] is not None]
     usage_summary = dict(
         measured=(mode == "live"),
@@ -471,6 +534,24 @@ async def run_requirement_evaluation(
         },
         fallback_count=sum(item["fallback_used"] for item in results),
         latency=_distribution([item["duration_ms"] for item in results]),
+        latency_by_phase={
+            phase: _distribution(values) if values else None
+            for phase in ("proposal_duration_ms", "model_duration_ms", "validation_duration_ms")
+            for values in [[item[phase] for item in results if item[phase] is not None]]
+        },
+        validation_impact={
+            "proposal_fail_final_pass": sum(
+                not r["proposal"]["passed"] and r["final"]["passed"] for r in results
+            ),
+            "proposal_pass_final_fail": sum(
+                r["proposal"]["passed"] and not r["final"]["passed"] for r in results
+            ),
+            "both_pass": sum(r["proposal"]["passed"] and r["final"]["passed"] for r in results),
+            "both_fail": sum(
+                not r["proposal"]["passed"] and not r["final"]["passed"] for r in results
+            ),
+            "note": "Final includes deterministic supplementation and fallback, not just rejection of invalid output.",
+        },
         usage=usage_summary,
         results=results,
     )
@@ -603,6 +684,7 @@ def main() -> None:
     run.add_argument("--split", choices=("all", "development", "holdout"), default="development")
     run.add_argument("--repetitions", type=int, default=1)
     run.add_argument("--prompt-file", type=Path)
+    run.add_argument("--case-timeout-seconds", type=float, default=120)
     compare = commands.add_parser("compare")
     compare.add_argument("baseline", type=Path)
     compare.add_argument("candidate", type=Path)
@@ -617,6 +699,8 @@ def main() -> None:
             parser.error(str(exc))
         print(json.dumps(result, ensure_ascii=False, indent=2))
         raise SystemExit(1 if result["status"] == "regressed" else 0)
+    if not math.isfinite(args.case_timeout_seconds) or args.case_timeout_seconds <= 0:
+        parser.error("--case-timeout-seconds must be finite and positive")
     if args.repetitions < 1:
         parser.error("--repetitions must be positive")
     if args.mode == "offline" and args.prompt_file:
@@ -654,6 +738,8 @@ def main() -> None:
             provider=provider,
             model=model,
             endpoint_hash=endpoint_hash,
+            case_timeout_seconds=args.case_timeout_seconds,
+            progress=True,
         )
     )
     print(

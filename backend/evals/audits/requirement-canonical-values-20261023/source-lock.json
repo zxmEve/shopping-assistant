@@ -1,0 +1,12 @@
+{
+  "previous_final_replay": "backend/evals/audits/requirement-holdout-v2-fixes/final-replay/20261022T143341-2a1152f625/replay.json",
+  "previous_final_sha256": "9cf8487e4448298afeacc0ba9fef46dea35b13ad1737798d4612e5753b7325c9",
+  "before_replay": "backend/evals/audits/requirement-canonical-values-20261023/before-replay/20261023T035655-74aaffa84c/replay.json",
+  "before_replay_sha256": "26dc27c06cf9f95e768c656d219534218acb5eba88399412942e5d1f2c146afa",
+  "original_live_report": "backend/evals/audits/requirement-holdout-v2-live/20261022T135239-22c85f553f/report.json",
+  "original_live_sha256": "bcfd5fa024c13955f18c415e16a6aa975c752d78adf20a8cac303bc70b98da97",
+  "dataset_sha256": "12c50fbe1ff6ce0cace1ce8fe8afd251596f9fb118178bbbe78f38aa289a0bf5",
+  "scorer_sha256": "3c00f260901e3cbcd53602b2720017e906d58a22c5dcf44559f150c5efae825c",
+  "adapter_sha256": "776f2cef9d27b872d0b2a29801080a2ef46d83118c9bca1aa881ed6be4e5b8e7",
+  "previous_scores_reproduced": 24
+}

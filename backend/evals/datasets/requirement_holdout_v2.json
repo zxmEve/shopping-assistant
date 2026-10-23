@@ -1,0 +1,1442 @@
+{
+  "dataset_version": "requirement-independent-holdout-v2-20261022",
+  "label_status": "draft_engineering_labels",
+  "scope": "New hand-authored synthetic holdout for one Requirement boundary call; frozen before first live call; no reference tools, no sourcing, same v1 scorer. New combinations and semantic groups; not independent business review or proof of population representativeness.",
+  "cases": [
+    {
+      "case_id": "newholdout-01",
+      "group_id": "independent-20261022-01",
+      "split": "holdout",
+      "category": "numeric_normalization",
+      "message": "采购十五台笔记本，每台最多6800元，价格含税，发往上海；内存至少24GB，硬盘至少768GB。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 15,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "6800",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "中文数量十五归一化为15；不把未知配置改成常见的16GB或1TB。"
+    },
+    {
+      "case_id": "newholdout-02",
+      "group_id": "independent-20261022-02",
+      "split": "holdout",
+      "category": "numeric_normalization",
+      "message": "需要7台笔记本，每台不超过1.25万元人民币，含税；交付深圳，48GB内存起、1.5TB硬盘起。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 7,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "12500",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 48,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1536,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "万元换算为12500；1.5TB按项目1024口径换算1536GB，均为明确下限。"
+    },
+    {
+      "case_id": "newholdout-03",
+      "group_id": "independent-20261022-03",
+      "split": "holdout",
+      "category": "numeric_normalization",
+      "message": "采购6台笔记本，单台上限1499.50 EUR，不含税，送上海，至少24GB内存，硬盘至少0.5TB。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 6,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "1499.5",
+            "currency": "EUR"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": false,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 512,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "金额按Decimal规范化，保留EUR及未税；0.5TB=512GB，不做汇率换算。"
+    },
+    {
+      "case_id": "newholdout-04",
+      "group_id": "independent-20261022-04",
+      "split": "holdout",
+      "category": "background_separation",
+      "message": "显示器30台已经买完，不属于本次任务。本次只买9台笔记本，单台7300元含税，送深圳，最低24GB内存、768GB硬盘。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 9,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "7300",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "已完成的其他品类和数量是背景，不是本次采购条目；只提取9台笔记本。"
+    },
+    {
+      "case_id": "newholdout-05",
+      "group_id": "independent-20261022-05",
+      "split": "holdout",
+      "category": "background_separation",
+      "message": "小王在群里建议买40台、每台12000元，那不是我的要求。我确认只采购11台笔记本，单台预算7600元含税，送上海，内存至少24GB，硬盘至少768GB。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 11,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "7600",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "明确拒绝他人建议；不能将40台或12000写入当前需求。"
+    },
+    {
+      "case_id": "newholdout-06",
+      "group_id": "independent-20261022-06",
+      "split": "holdout",
+      "category": "tax_scope",
+      "message": "采购4台笔记本，每台上限9100元，不含增值税但含运费；送深圳，至少48GB内存和1536GB硬盘。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 4,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "9100",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": false,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 48,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1536,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "含运费不等于含税；只评分当前契约有表示的税口径，不虚构运费字段。"
+    },
+    {
+      "case_id": "newholdout-07",
+      "group_id": "independent-20261022-07",
+      "split": "holdout",
+      "category": "preference_composition",
+      "message": "买10台笔记本，单台8600元含税，送上海。内存至少24GB，能有48GB更好；硬盘至少768GB，最好1536GB。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 10,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8600",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 48,
+          "operator": "PREFER",
+          "strength": "SOFT"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1536,
+          "operator": "PREFER",
+          "strength": "SOFT"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "同一字段同时保留硬下限和更高的软偏好；软偏好不能替换硬要求。"
+    },
+    {
+      "case_id": "newholdout-08",
+      "group_id": "independent-20261022-08",
+      "split": "holdout",
+      "category": "preference_composition",
+      "message": "采购5台笔记本，单台9600元含税送深圳，至少24GB内存、768GB硬盘，必须Linux，保修至少两年半。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 5,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "9600",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "operating_system",
+          "value": "linux",
+          "operator": "EQ",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_warranty_months",
+          "value": 30,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "中文两年半为30个月；Linux和最低保修都是硬约束。"
+    },
+    {
+      "case_id": "newholdout-09",
+      "group_id": "independent-20261022-09",
+      "split": "holdout",
+      "category": "condition_composition",
+      "message": "之前讨论过翻新机，但最终只接受全新机。采购13台笔记本，单台6900元含税，送上海，至少24GB内存、768GB硬盘。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 13,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "6900",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "condition",
+          "value": "NEW",
+          "operator": "EQ",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "旧讨论的翻新不构成当前肯定约束，最终明确全新。"
+    },
+    {
+      "case_id": "newholdout-10",
+      "group_id": "independent-20261022-10",
+      "split": "holdout",
+      "category": "multiple_missing",
+      "message": "先采购8台笔记本，单台预算6400元，至少24GB内存和768GB硬盘。税是否包含、交付到哪个城市还没定。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 8,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "6400",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [
+        "budget.tax_included",
+        "delivery_city"
+      ],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "明确未确定的税与城市保持缺失，集中追问两个字段。"
+    },
+    {
+      "case_id": "newholdout-11",
+      "group_id": "independent-20261022-11",
+      "split": "holdout",
+      "category": "multiple_missing",
+      "message": "新来了8位同事，但采购台数还没确认，单台预算也没批准。先记笔记本，含税，送深圳，内存最低24GB、硬盘最低768GB。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [
+        "quantity",
+        "budget.maximum"
+      ],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "员工人数不等于采购数量；数量和单价均明确待确认。"
+    },
+    {
+      "case_id": "newholdout-12",
+      "group_id": "independent-20261022-12",
+      "split": "holdout",
+      "category": "category_gate",
+      "message": "采购14件设备，单件预算5600元含税，交付上海；具体是什么设备尚未确定。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "quantity",
+          "value": 14,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "5600",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        }
+      ],
+      "expected_missing": [
+        "category"
+      ],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "不根据单价猜品类；品类未知时只追问品类，不展开笔记本参数。"
+    },
+    {
+      "case_id": "newholdout-13",
+      "group_id": "independent-20261022-13",
+      "split": "holdout",
+      "category": "explicit_resolution",
+      "message": "买16台笔记本，单台上限7100元含税，送深圳。内存明确不限，不需要设置最低值；硬盘至少768GB。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 16,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "7100",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": "NO_PREFERENCE",
+          "operator": "STATE",
+          "strength": null
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "内存明确无要求使用NO_PREFERENCE；硬盘仍保留数值下限。"
+    },
+    {
+      "case_id": "newholdout-14",
+      "group_id": "independent-20261022-14",
+      "split": "holdout",
+      "category": "contradiction_composition",
+      "message": "需要3台笔记本，单台15000元含税，送上海。内存至少64GB，同时内存最多24GB；硬盘至少1536GB。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 3,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "15000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 64,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1536,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "LTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [
+        "minimum_ram_gb"
+      ],
+      "expected_changes": null,
+      "rationale": "保留64GB下限与24GB上限，标记内存冲突并追问，不自行放宽。"
+    },
+    {
+      "case_id": "newholdout-15",
+      "group_id": "independent-20261022-15",
+      "split": "holdout",
+      "category": "contradiction_composition",
+      "message": "采购18台笔记本，每台上限8200元含税，送深圳，至少24GB内存；硬盘至少2TB，又必须不超过1024GB。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 18,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8200",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 2048,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "LTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [
+        "minimum_storage_gb"
+      ],
+      "expected_changes": null,
+      "rationale": "跨单位上下界冲突：2TB=2048GB大于1024GB；保留双方证据。"
+    },
+    {
+      "case_id": "newholdout-16",
+      "group_id": "independent-20261022-16",
+      "split": "holdout",
+      "category": "budget_scope",
+      "message": "采购17台笔记本，整批含税总预算136000元，送上海，至少24GB内存、768GB硬盘；尚未给每台设限。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 17,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [
+        "budget.maximum"
+      ],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "总预算不能直接当单价，也不自动除以17；当前契约仍追问单件上限。"
+    },
+    {
+      "case_id": "newholdout-17",
+      "group_id": "independent-20261022-17",
+      "split": "holdout",
+      "category": "background_separation",
+      "message": "上次询价单写着每台9200元，这次只作背景，当前预算尚待批准。现在采购11台笔记本，含税，送深圳，至少24GB内存、768GB硬盘。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 11,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 24,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 768,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [
+        "budget.maximum"
+      ],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "历史询价不是当前预算，未请求历史工具，不应生成外部引用。"
+    },
+    {
+      "case_id": "newholdout-18",
+      "group_id": "independent-20261022-18",
+      "split": "holdout",
+      "category": "contradiction_composition",
+      "message": "采购2台笔记本，每台上限13000元含税送上海，至少48GB内存、1536GB硬盘。同一台设备必须使用Windows，同时只能使用Linux。",
+      "base_fixture": null,
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 2,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "13000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 48,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1536,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "operating_system",
+          "value": "windows",
+          "operator": "EQ",
+          "strength": "HARD"
+        },
+        {
+          "field": "operating_system",
+          "value": "linux",
+          "operator": "EQ",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [
+        "operating_system"
+      ],
+      "expected_changes": null,
+      "rationale": "同一设备互斥的唯一操作系统要求构成冲突；不自行解释为双系统。"
+    },
+    {
+      "case_id": "newholdout-19",
+      "group_id": "independent-20261022-19",
+      "split": "holdout",
+      "category": "multi_field_update",
+      "message": "这批数量调整为14台，内存下限调整到48GB，其他已确认要求保持。",
+      "base_fixture": "complete_laptop",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 14,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 48,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": [
+        "quantity",
+        "minimum_ram_gb"
+      ],
+      "rationale": "一次修改数量与内存，保留已确认预算、税、城市和存储。"
+    },
+    {
+      "case_id": "newholdout-20",
+      "group_id": "independent-20261022-20",
+      "split": "holdout",
+      "category": "multi_field_update",
+      "message": "改送深圳，单台含税上限改为7200元，其他已确认要求保持。",
+      "base_fixture": "complete_laptop",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "7200",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shenzhen",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": [
+        "delivery_city",
+        "budget.maximum"
+      ],
+      "rationale": "同时修改地点与金额，含税保持原值，不生成多余税口径变更。"
+    },
+    {
+      "case_id": "newholdout-21",
+      "group_id": "independent-20261022-21",
+      "split": "holdout",
+      "category": "preference_update",
+      "message": "原来最低16GB内存的要求保留，另外希望32GB更好，其他条件不变。",
+      "base_fixture": "complete_laptop",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 32,
+          "operator": "PREFER",
+          "strength": "SOFT"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "只增加32GB软偏好；不能删除已确认的16GB硬下限。"
+    },
+    {
+      "case_id": "newholdout-22",
+      "group_id": "independent-20261022-22",
+      "split": "holdout",
+      "category": "withdrawal_update",
+      "message": "刚才的8000元单价上限作废，本次单台预算还没批准；数量、税口径、交付地和配置都不变。",
+      "base_fixture": "complete_laptop",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [
+        "budget.maximum"
+      ],
+      "expected_conflicts": [],
+      "expected_changes": [
+        "budget.maximum"
+      ],
+      "rationale": "用户撤销预算应移除旧值并重新追问；原8000仅作为被撤销旧值证据。"
+    },
+    {
+      "case_id": "newholdout-23",
+      "group_id": "independent-20261022-23",
+      "split": "holdout",
+      "category": "multi_field_update",
+      "message": "税口径改成不含税，硬盘下限改为2TB，其余条件沿用已确认版本。",
+      "base_fixture": "complete_laptop",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": false,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": 16,
+          "operator": "GTE",
+          "strength": "HARD"
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 2048,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": [
+        "budget.tax_included",
+        "minimum_storage_gb"
+      ],
+      "rationale": "修改税与硬盘，金额、数量、内存、城市均继承；2TB=2048GB。"
+    },
+    {
+      "case_id": "newholdout-24",
+      "group_id": "independent-20261022-24",
+      "split": "holdout",
+      "category": "withdrawal_update",
+      "message": "取消原先的内存下限，内存明确不限；硬盘、预算、数量和交付条件照旧。",
+      "base_fixture": "complete_laptop",
+      "expected_facts": [
+        {
+          "field": "category",
+          "value": "laptop",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "quantity",
+          "value": 20,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.maximum",
+          "value": {
+            "amount": "8000",
+            "currency": "CNY"
+          },
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "budget.tax_included",
+          "value": true,
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "delivery_city",
+          "value": "Shanghai",
+          "operator": "EQ",
+          "strength": null
+        },
+        {
+          "field": "minimum_ram_gb",
+          "value": "NO_PREFERENCE",
+          "operator": "STATE",
+          "strength": null
+        },
+        {
+          "field": "minimum_storage_gb",
+          "value": 1024,
+          "operator": "GTE",
+          "strength": "HARD"
+        }
+      ],
+      "expected_missing": [],
+      "expected_conflicts": [],
+      "expected_changes": null,
+      "rationale": "显式撤销硬下限并改为NO_PREFERENCE，不继续保留旧16GB约束。"
+    }
+  ]
+}

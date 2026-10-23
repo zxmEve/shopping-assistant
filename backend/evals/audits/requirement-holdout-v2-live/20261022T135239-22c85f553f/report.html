@@ -1,0 +1,762 @@
+<!doctype html><meta charset='utf-8'><title>Requirement evaluation</title><style>body{font:15px system-ui;max-width:1200px;margin:30px auto}td,th{border:1px solid #ccc;padding:8px;vertical-align:top}table{border-collapse:collapse}pre{white-space:pre-wrap}</style><h1>20261022T135239-22c85f553f</h1><p>Mode: live; labels: draft_engineering_labels; offline is NOT model accuracy. Proposal is before domain validation.</p><pre>{
+  &quot;status&quot;: &quot;failed&quot;,
+  &quot;proposal&quot;: {
+    &quot;runs&quot;: 24,
+    &quot;passed&quot;: 0,
+    &quot;case_exact_match_rate&quot;: 0.0,
+    &quot;expected_fact_count&quot;: 168,
+    &quot;fact_accuracy&quot;: 0.875,
+    &quot;omission_rate&quot;: 0.0,
+    &quot;wrong_extraction_rate&quot;: 0.125,
+    &quot;unsupported_addition_count&quot;: 1,
+    &quot;issue_counts&quot;: {
+      &quot;clarification_coverage_mismatch&quot;: 12,
+      &quot;delta_fields_mismatch&quot;: 2,
+      &quot;evidence_invalid&quot;: 23,
+      &quot;missing_fields_mismatch&quot;: 13,
+      &quot;status_mismatch&quot;: 7
+    }
+  },
+  &quot;final&quot;: {
+    &quot;runs&quot;: 24,
+    &quot;passed&quot;: 4,
+    &quot;case_exact_match_rate&quot;: 0.16666666666666666,
+    &quot;expected_fact_count&quot;: 168,
+    &quot;fact_accuracy&quot;: 0.8154761904761905,
+    &quot;omission_rate&quot;: 0.05952380952380952,
+    &quot;wrong_extraction_rate&quot;: 0.125,
+    &quot;unsupported_addition_count&quot;: 2,
+    &quot;issue_counts&quot;: {
+      &quot;clarification_coverage_mismatch&quot;: 6,
+      &quot;conflicts_mismatch&quot;: 1,
+      &quot;delta_fields_mismatch&quot;: 3,
+      &quot;missing_fields_mismatch&quot;: 7,
+      &quot;status_mismatch&quot;: 5
+    }
+  },
+  &quot;usage&quot;: {
+    &quot;measured&quot;: true,
+    &quot;known_runs&quot;: 24,
+    &quot;incomplete_runs&quot;: 0,
+    &quot;input_tokens_total_known&quot;: 112667,
+    &quot;output_tokens_total_known&quot;: 29037,
+    &quot;estimated_cost_micro_usd_total_known&quot;: 43950,
+    &quot;model_requests_total_known&quot;: 24,
+    &quot;total_tokens_mean_known&quot;: 5904.333333333333
+  },
+  &quot;fallback_count&quot;: 5
+}</pre><table><tr><th>Case</th><th>Repeat</th><th>Proposal</th><th>Final</th><th>Final details</th></tr><tr><td>newholdout-01</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 6,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shanghai&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;上海&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-02</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 5,
+  &quot;omission_count&quot;: 1,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [
+    {
+      &quot;field&quot;: &quot;minimum_storage_gb&quot;,
+      &quot;value&quot;: 1536,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    }
+  ],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shenzhen&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;深圳&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [
+    &quot;clarification_coverage_mismatch&quot;,
+    &quot;missing_fields_mismatch&quot;,
+    &quot;status_mismatch&quot;
+  ],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-03</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 5,
+  &quot;omission_count&quot;: 1,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [
+    {
+      &quot;field&quot;: &quot;minimum_storage_gb&quot;,
+      &quot;value&quot;: 512,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    }
+  ],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shanghai&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;上海&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [
+    &quot;clarification_coverage_mismatch&quot;,
+    &quot;missing_fields_mismatch&quot;,
+    &quot;status_mismatch&quot;
+  ],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-04</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 3,
+  &quot;omission_count&quot;: 2,
+  &quot;wrong_count&quot;: 2,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [
+    {
+      &quot;field&quot;: &quot;minimum_ram_gb&quot;,
+      &quot;value&quot;: 24,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    },
+    {
+      &quot;field&quot;: &quot;minimum_storage_gb&quot;,
+      &quot;value&quot;: 768,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    }
+  ],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;category&quot;,
+        &quot;value&quot;: &quot;laptop&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;category&quot;,
+        &quot;value&quot;: &quot;monitor&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    },
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;quantity&quot;,
+        &quot;value&quot;: 9,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;quantity&quot;,
+        &quot;value&quot;: 30,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [
+    &quot;clarification_coverage_mismatch&quot;,
+    &quot;missing_fields_mismatch&quot;,
+    &quot;status_mismatch&quot;
+  ],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-05</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 4,
+  &quot;omission_count&quot;: 2,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [
+    {
+      &quot;field&quot;: &quot;minimum_ram_gb&quot;,
+      &quot;value&quot;: 24,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    },
+    {
+      &quot;field&quot;: &quot;minimum_storage_gb&quot;,
+      &quot;value&quot;: 768,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    }
+  ],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;quantity&quot;,
+        &quot;value&quot;: 11,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;quantity&quot;,
+        &quot;value&quot;: 40,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [
+    &quot;clarification_coverage_mismatch&quot;,
+    &quot;missing_fields_mismatch&quot;,
+    &quot;status_mismatch&quot;
+  ],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-06</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 6,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shenzhen&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;深圳&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-07</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 9,
+  &quot;correct_count&quot;: 8,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shanghai&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;上海&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-08</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 9,
+  &quot;correct_count&quot;: 6,
+  &quot;omission_count&quot;: 1,
+  &quot;wrong_count&quot;: 2,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [
+    {
+      &quot;field&quot;: &quot;minimum_warranty_months&quot;,
+      &quot;value&quot;: 30,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    }
+  ],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shenzhen&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;深圳&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    },
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;operating_system&quot;,
+        &quot;value&quot;: &quot;linux&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: &quot;HARD&quot;
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;operating_system&quot;,
+        &quot;value&quot;: &quot;Linux&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: &quot;HARD&quot;
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-09</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 8,
+  &quot;correct_count&quot;: 7,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shanghai&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;上海&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-10</td><td>1</td><td>False</td><td>True</td><td><pre>{
+  &quot;passed&quot;: true,
+  &quot;expected_count&quot;: 5,
+  &quot;correct_count&quot;: 5,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 0,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-11</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 5,
+  &quot;correct_count&quot;: 4,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shenzhen&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;深圳&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-12</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 4,
+  &quot;correct_count&quot;: 3,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shanghai&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;上海&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-13</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 6,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shenzhen&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;深圳&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-14</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 8,
+  &quot;correct_count&quot;: 7,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shanghai&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;上海&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-15</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 8,
+  &quot;correct_count&quot;: 6,
+  &quot;omission_count&quot;: 1,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [
+    {
+      &quot;field&quot;: &quot;minimum_storage_gb&quot;,
+      &quot;value&quot;: 2048,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    }
+  ],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shenzhen&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;深圳&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [
+    &quot;conflicts_mismatch&quot;,
+    &quot;missing_fields_mismatch&quot;
+  ],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-16</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 6,
+  &quot;correct_count&quot;: 4,
+  &quot;omission_count&quot;: 2,
+  &quot;wrong_count&quot;: 0,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [
+    {
+      &quot;field&quot;: &quot;minimum_ram_gb&quot;,
+      &quot;value&quot;: 24,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    },
+    {
+      &quot;field&quot;: &quot;minimum_storage_gb&quot;,
+      &quot;value&quot;: 768,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    }
+  ],
+  &quot;wrong&quot;: [],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [
+    &quot;clarification_coverage_mismatch&quot;,
+    &quot;missing_fields_mismatch&quot;
+  ],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-17</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 6,
+  &quot;correct_count&quot;: 5,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shenzhen&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;深圳&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-18</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 9,
+  &quot;correct_count&quot;: 6,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 3,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;Shanghai&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;delivery_city&quot;,
+        &quot;value&quot;: &quot;上海&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: null
+      }
+    },
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;operating_system&quot;,
+        &quot;value&quot;: &quot;windows&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: &quot;HARD&quot;
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;operating_system&quot;,
+        &quot;value&quot;: &quot;Windows&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: &quot;HARD&quot;
+      }
+    },
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;operating_system&quot;,
+        &quot;value&quot;: &quot;linux&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: &quot;HARD&quot;
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;operating_system&quot;,
+        &quot;value&quot;: &quot;Linux&quot;,
+        &quot;operator&quot;: &quot;EQ&quot;,
+        &quot;strength&quot;: &quot;HARD&quot;
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-19</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 7,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 0,
+  &quot;addition_count&quot;: 1,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [],
+  &quot;additions&quot;: [
+    {
+      &quot;field&quot;: &quot;minimum_ram_gb&quot;,
+      &quot;value&quot;: 16,
+      &quot;operator&quot;: &quot;GTE&quot;,
+      &quot;strength&quot;: &quot;HARD&quot;
+    }
+  ],
+  &quot;issues&quot;: [
+    &quot;delta_fields_mismatch&quot;
+  ],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-20</td><td>1</td><td>False</td><td>True</td><td><pre>{
+  &quot;passed&quot;: true,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 7,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 0,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-21</td><td>1</td><td>False</td><td>True</td><td><pre>{
+  &quot;passed&quot;: true,
+  &quot;expected_count&quot;: 8,
+  &quot;correct_count&quot;: 8,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 0,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-22</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 6,
+  &quot;correct_count&quot;: 6,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 0,
+  &quot;addition_count&quot;: 1,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [],
+  &quot;additions&quot;: [
+    {
+      &quot;field&quot;: &quot;budget.maximum&quot;,
+      &quot;value&quot;: {
+        &quot;amount&quot;: &quot;8000&quot;,
+        &quot;currency&quot;: &quot;CNY&quot;
+      },
+      &quot;operator&quot;: &quot;EQ&quot;,
+      &quot;strength&quot;: null
+    }
+  ],
+  &quot;issues&quot;: [
+    &quot;clarification_coverage_mismatch&quot;,
+    &quot;delta_fields_mismatch&quot;,
+    &quot;missing_fields_mismatch&quot;,
+    &quot;status_mismatch&quot;
+  ],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-23</td><td>1</td><td>False</td><td>False</td><td><pre>{
+  &quot;passed&quot;: false,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 6,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 1,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [
+    {
+      &quot;expected&quot;: {
+        &quot;field&quot;: &quot;minimum_storage_gb&quot;,
+        &quot;value&quot;: 2048,
+        &quot;operator&quot;: &quot;GTE&quot;,
+        &quot;strength&quot;: &quot;HARD&quot;
+      },
+      &quot;actual&quot;: {
+        &quot;field&quot;: &quot;minimum_storage_gb&quot;,
+        &quot;value&quot;: 1024,
+        &quot;operator&quot;: &quot;GTE&quot;,
+        &quot;strength&quot;: &quot;HARD&quot;
+      }
+    }
+  ],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [
+    &quot;delta_fields_mismatch&quot;
+  ],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr><tr><td>newholdout-24</td><td>1</td><td>False</td><td>True</td><td><pre>{
+  &quot;passed&quot;: true,
+  &quot;expected_count&quot;: 7,
+  &quot;correct_count&quot;: 7,
+  &quot;omission_count&quot;: 0,
+  &quot;wrong_count&quot;: 0,
+  &quot;addition_count&quot;: 0,
+  &quot;omitted&quot;: [],
+  &quot;wrong&quot;: [],
+  &quot;additions&quot;: [],
+  &quot;issues&quot;: [],
+  &quot;evidence_errors&quot;: []
+}</pre></td></tr></table>

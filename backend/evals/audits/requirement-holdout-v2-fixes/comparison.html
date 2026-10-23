@@ -1,0 +1,38 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>需求校验修复前后对比</title><style>body{font:15px system-ui;margin:28px;color:#202a38}pre{white-space:pre-wrap}table{border-collapse:collapse}td,th{padding:8px;border:1px solid #cbd5e1}</style><h1>需求校验修复：同输出重放</h1><p>固定原始24份真实模型提议，比较旧校验器与修复后的校验器。本轮新增模型请求和token均为0；严格错误仍包含城市别名及系统大小写。未修改原始报告、标签或评分器。</p><p><a href="case-comparison.csv">逐例CSV</a> · <a href="comparison.json">完整对比JSON</a></p><pre>{
+  &quot;comparison&quot;: {
+    &quot;before&quot;: {
+      &quot;passed&quot;: 4,
+      &quot;omissions&quot;: 10,
+      &quot;wrong&quot;: 21,
+      &quot;additions&quot;: 2
+    },
+    &quot;after&quot;: {
+      &quot;passed&quot;: 8,
+      &quot;omissions&quot;: 0,
+      &quot;wrong&quot;: 19,
+      &quot;additions&quot;: 0
+    }
+  },
+  &quot;format_diagnostics&quot;: {
+    &quot;before&quot;: {
+      &quot;equivalent_format_mismatches&quot;: 17,
+      &quot;other_wrong&quot;: 4
+    },
+    &quot;after&quot;: {
+      &quot;equivalent_format_mismatches&quot;: 19,
+      &quot;other_wrong&quot;: 0
+    }
+  },
+  &quot;before_fallback_count&quot;: 5,
+  &quot;after_fallback_count&quot;: 2,
+  &quot;checks&quot;: {
+    &quot;full_backend_tests_passed&quot;: 418,
+    &quot;full_backend_tests_skipped&quot;: 1,
+    &quot;full_backend_test_seconds&quot;: 37.16,
+    &quot;new_regression_tests&quot;: 41,
+    &quot;ruff&quot;: &quot;passed&quot;,
+    &quot;original_baseline_passed&quot;: 60,
+    &quot;original_live_report_unchanged&quot;: true,
+    &quot;new_model_requests&quot;: 0
+  }
+}</pre><table><tr><th>case_id</th><th>before_passed</th><th>after_passed</th><th>before_omissions</th><th>after_omissions</th><th>before_wrong</th><th>after_wrong</th><th>before_additions</th><th>after_additions</th><th>before_fallback</th><th>after_fallback</th></tr><tr><td>newholdout-01</td><td>False</td><td>False</td><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-02</td><td>False</td><td>False</td><td>1</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-03</td><td>False</td><td>False</td><td>1</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-04</td><td>False</td><td>False</td><td>2</td><td>0</td><td>2</td><td>1</td><td>0</td><td>0</td><td>True</td><td>False</td></tr><tr><td>newholdout-05</td><td>False</td><td>False</td><td>2</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>True</td><td>False</td></tr><tr><td>newholdout-06</td><td>False</td><td>False</td><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-07</td><td>False</td><td>False</td><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-08</td><td>False</td><td>False</td><td>1</td><td>0</td><td>2</td><td>2</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-09</td><td>False</td><td>False</td><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-10</td><td>True</td><td>True</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-11</td><td>False</td><td>False</td><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-12</td><td>False</td><td>False</td><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-13</td><td>False</td><td>False</td><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-14</td><td>False</td><td>False</td><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-15</td><td>False</td><td>False</td><td>1</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-16</td><td>False</td><td>True</td><td>2</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>True</td><td>True</td></tr><tr><td>newholdout-17</td><td>False</td><td>False</td><td>0</td><td>0</td><td>1</td><td>1</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-18</td><td>False</td><td>False</td><td>0</td><td>0</td><td>3</td><td>3</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-19</td><td>False</td><td>True</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-20</td><td>True</td><td>True</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-21</td><td>True</td><td>True</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-22</td><td>False</td><td>True</td><td>0</td><td>0</td><td>0</td><td>0</td><td>1</td><td>0</td><td>True</td><td>False</td></tr><tr><td>newholdout-23</td><td>False</td><td>True</td><td>0</td><td>0</td><td>1</td><td>0</td><td>0</td><td>0</td><td>False</td><td>False</td></tr><tr><td>newholdout-24</td><td>True</td><td>True</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>0</td><td>True</td><td>True</td></tr></table></html>

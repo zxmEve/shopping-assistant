@@ -1,0 +1,710 @@
+{
+  "review_version": "requirement-holdout-v2-paired-review-v1",
+  "experiment_id": "20261022T135239-22c85f553f",
+  "raw_report_sha256": "bcfd5fa024c13955f18c415e16a6aa975c752d78adf20a8cac303bc70b98da97",
+  "dataset_sha256": "12c50fbe1ff6ce0cace1ce8fe8afd251596f9fb118178bbbe78f38aa289a0bf5",
+  "freeze_sha256": "4452b10ce552b24476fd8069e691d02cd0130c48ecfe26882430d2520eee4a47",
+  "configured_provider": "deepseek",
+  "configured_model": "deepseek-v4-flash",
+  "served_model_identity_independently_verified": false,
+  "primary_scoring": "Unchanged frozen v1 scoring, including canonical spelling and evidence/state/delta checks.",
+  "posthoc_diagnostic": "Separately classify Shanghai/上海 and Shenzhen/深圳 aliases and operating-system case only. Does not rewrite primary scores, count as a new benchmark, or waive evidence/state/delta failures.",
+  "phase_counts": {
+    "proposal": {
+      "strict_passed": 0,
+      "expected_facts": 168,
+      "omissions": 0,
+      "strict_wrong": 21,
+      "equivalent_format_mismatches": 20,
+      "wrong_excluding_format_mismatches": 1,
+      "unsupported_additions": 1,
+      "evidence_invalid_cases": 23,
+      "issue_counts": {
+        "evidence_invalid": 23,
+        "clarification_coverage_mismatch": 12,
+        "missing_fields_mismatch": 13,
+        "status_mismatch": 7,
+        "delta_fields_mismatch": 2
+      }
+    },
+    "final": {
+      "strict_passed": 4,
+      "expected_facts": 168,
+      "omissions": 10,
+      "strict_wrong": 21,
+      "equivalent_format_mismatches": 17,
+      "wrong_excluding_format_mismatches": 4,
+      "unsupported_additions": 2,
+      "evidence_invalid_cases": 0,
+      "issue_counts": {
+        "clarification_coverage_mismatch": 6,
+        "missing_fields_mismatch": 7,
+        "status_mismatch": 5,
+        "conflicts_mismatch": 1,
+        "delta_fields_mismatch": 3
+      }
+    }
+  },
+  "usage": {
+    "measured": true,
+    "known_runs": 24,
+    "incomplete_runs": 0,
+    "input_tokens_total_known": 112667,
+    "output_tokens_total_known": 29037,
+    "estimated_cost_micro_usd_total_known": 43950,
+    "model_requests_total_known": 24,
+    "total_tokens_mean_known": 5904.333333333333
+  },
+  "latency": {
+    "mean_ms": 4000.380541666667,
+    "p95_ms": 5071.053
+  },
+  "latency_by_phase": {
+    "proposal_duration_ms": {
+      "mean_ms": 3998.340833333333,
+      "p95_ms": 5068.975
+    },
+    "model_duration_ms": {
+      "mean_ms": 3978.844625,
+      "p95_ms": 5049.738
+    },
+    "validation_duration_ms": {
+      "mean_ms": 1.5609166666666667,
+      "p95_ms": 2.766
+    }
+  },
+  "validation_impact": {
+    "proposal_fail_final_pass": 4,
+    "proposal_pass_final_fail": 0,
+    "both_pass": 0,
+    "both_fail": 20,
+    "note": "Final includes deterministic supplementation and fallback, not just rejection of invalid output."
+  },
+  "fallback_case_ids": [
+    "newholdout-04",
+    "newholdout-05",
+    "newholdout-16",
+    "newholdout-22",
+    "newholdout-24"
+  ],
+  "any_fact_metric_worsened_case_ids": [
+    "newholdout-02",
+    "newholdout-03",
+    "newholdout-04",
+    "newholdout-05",
+    "newholdout-08",
+    "newholdout-15",
+    "newholdout-16",
+    "newholdout-19",
+    "newholdout-22",
+    "newholdout-23"
+  ],
+  "execution_error_count": 0,
+  "input_tokens_total": 112667,
+  "output_tokens_total": 29037,
+  "total_tokens": 141704,
+  "serial_case_duration_total_ms": 96009.133,
+  "format_diagnostics": [
+    {
+      "case_id": "newholdout-01",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-01",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-02",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-02",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-03",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-03",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-04",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-05",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-06",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-06",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-07",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-07",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-08",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-08",
+      "phase": "proposal",
+      "expected": {
+        "field": "operating_system",
+        "value": "linux",
+        "operator": "EQ",
+        "strength": "HARD"
+      },
+      "actual": {
+        "field": "operating_system",
+        "value": "Linux",
+        "operator": "EQ",
+        "strength": "HARD"
+      }
+    },
+    {
+      "case_id": "newholdout-08",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-08",
+      "phase": "final",
+      "expected": {
+        "field": "operating_system",
+        "value": "linux",
+        "operator": "EQ",
+        "strength": "HARD"
+      },
+      "actual": {
+        "field": "operating_system",
+        "value": "Linux",
+        "operator": "EQ",
+        "strength": "HARD"
+      }
+    },
+    {
+      "case_id": "newholdout-09",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-09",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-11",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-11",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-12",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-12",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-13",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-13",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-14",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-14",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-15",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-15",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-16",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-17",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-17",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shenzhen",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "深圳",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-18",
+      "phase": "proposal",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-18",
+      "phase": "proposal",
+      "expected": {
+        "field": "operating_system",
+        "value": "windows",
+        "operator": "EQ",
+        "strength": "HARD"
+      },
+      "actual": {
+        "field": "operating_system",
+        "value": "Windows",
+        "operator": "EQ",
+        "strength": "HARD"
+      }
+    },
+    {
+      "case_id": "newholdout-18",
+      "phase": "proposal",
+      "expected": {
+        "field": "operating_system",
+        "value": "linux",
+        "operator": "EQ",
+        "strength": "HARD"
+      },
+      "actual": {
+        "field": "operating_system",
+        "value": "Linux",
+        "operator": "EQ",
+        "strength": "HARD"
+      }
+    },
+    {
+      "case_id": "newholdout-18",
+      "phase": "final",
+      "expected": {
+        "field": "delivery_city",
+        "value": "Shanghai",
+        "operator": "EQ",
+        "strength": null
+      },
+      "actual": {
+        "field": "delivery_city",
+        "value": "上海",
+        "operator": "EQ",
+        "strength": null
+      }
+    },
+    {
+      "case_id": "newholdout-18",
+      "phase": "final",
+      "expected": {
+        "field": "operating_system",
+        "value": "windows",
+        "operator": "EQ",
+        "strength": "HARD"
+      },
+      "actual": {
+        "field": "operating_system",
+        "value": "Windows",
+        "operator": "EQ",
+        "strength": "HARD"
+      }
+    },
+    {
+      "case_id": "newholdout-18",
+      "phase": "final",
+      "expected": {
+        "field": "operating_system",
+        "value": "linux",
+        "operator": "EQ",
+        "strength": "HARD"
+      },
+      "actual": {
+        "field": "operating_system",
+        "value": "Linux",
+        "operator": "EQ",
+        "strength": "HARD"
+      }
+    }
+  ],
+  "limitations": [
+    "Synthetic engineering labels, not business reviewed or representative production samples.",
+    "One sample per case; no confidence interval, repetitions or provider-version guarantee.",
+    "Token values are provider-reported via SDK, not an independently reconciled bill.",
+    "Model time includes SDK, network and parsing; not time-to-first-token.",
+    "Validation time includes supplementation/fallback; it makes no model requests.",
+    "No sourcing, tool-quality or full workflow evaluation; fixed base for update cases.",
+    "The new holdout is now seen and must not be reused as blind evidence after tuning."
+  ]
+}

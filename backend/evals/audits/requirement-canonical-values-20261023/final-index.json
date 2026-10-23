@@ -1,0 +1,4 @@
+{
+  "final_replay": "backend/evals/audits/requirement-canonical-values-20261023/after-replay/20261023T040118-036054dd0f/replay.json",
+  "legacy_regression": "backend/evals/audits/requirement-canonical-values-20261023/legacy-regression/20261023T040118-88e092710c/report.json"
+}

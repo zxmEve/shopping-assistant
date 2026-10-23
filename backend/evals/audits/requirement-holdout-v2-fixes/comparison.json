@@ -1,0 +1,2578 @@
+{
+  "review_version": "requirement-holdout-v2-fix-comparison-v1",
+  "method": "Validation replay of identical saved live proposals; no new provider sampling.",
+  "original_live_report": "backend/evals/audits/requirement-holdout-v2-live/20261022T135239-22c85f553f/report.json",
+  "original_live_report_sha256": "bcfd5fa024c13955f18c415e16a6aa975c752d78adf20a8cac303bc70b98da97",
+  "before_reproduced_report": "backend/evals/audits/requirement-holdout-v2-fixes/before-replay/20261022T141856-38d56b6ed3/replay.json",
+  "before_reproduced_sha256": "56888eeda9482e98585099a578e14d53b076fbb13b22f7d9d1cdb61ee49f99a6",
+  "final_replay_report": "backend/evals/audits/requirement-holdout-v2-fixes/final-replay/20261022T143341-2a1152f625/replay.json",
+  "final_replay_sha256": "9cf8487e4448298afeacc0ba9fef46dea35b13ad1737798d4612e5753b7325c9",
+  "dataset_sha256": "12c50fbe1ff6ce0cace1ce8fe8afd251596f9fb118178bbbe78f38aa289a0bf5",
+  "scorer_sha256": "3c00f260901e3cbcd53602b2720017e906d58a22c5dcf44559f150c5efae825c",
+  "original_proposals_preserved": 24,
+  "historical_cases_reproduced": 24,
+  "comparison": {
+    "before": {
+      "passed": 4,
+      "omissions": 10,
+      "wrong": 21,
+      "additions": 2
+    },
+    "after": {
+      "passed": 8,
+      "omissions": 0,
+      "wrong": 19,
+      "additions": 0
+    }
+  },
+  "format_diagnostics": {
+    "before": {
+      "equivalent_format_mismatches": 17,
+      "other_wrong": 4
+    },
+    "after": {
+      "equivalent_format_mismatches": 19,
+      "other_wrong": 0
+    }
+  },
+  "before_fallback_count": 5,
+  "after_fallback_count": 2,
+  "worsened_case_ids": [],
+  "new_issue_types_by_case": [],
+  "changed_score_case_ids": [
+    "newholdout-02",
+    "newholdout-03",
+    "newholdout-04",
+    "newholdout-05",
+    "newholdout-08",
+    "newholdout-15",
+    "newholdout-16",
+    "newholdout-19",
+    "newholdout-22",
+    "newholdout-23"
+  ],
+  "new_model_requests": 0,
+  "new_model_tokens": 0,
+  "original_live_usage_not_remeasured": {
+    "measured": true,
+    "known_runs": 24,
+    "incomplete_runs": 0,
+    "input_tokens_total_known": 112667,
+    "output_tokens_total_known": 29037,
+    "estimated_cost_micro_usd_total_known": 43950,
+    "model_requests_total_known": 24,
+    "total_tokens_mean_known": 5904.333333333333
+  },
+  "before_backend_replay_latency": {
+    "mean_ms": 3.4373333333333336,
+    "p95_ms": 1.703
+  },
+  "after_backend_replay_latency": {
+    "mean_ms": 0.7870416666666666,
+    "p95_ms": 1.169
+  },
+  "legacy_report": "backend/evals/audits/requirement-holdout-v2-fixes/legacy-regression/20261022T143342-bdb0b9dfdd/report.json",
+  "legacy_report_sha256": "89d13de0e05927d43a9e42c4f56b92b9e9ddc48198347864acec465878302db4",
+  "legacy_cases_passed": 60,
+  "checks": {
+    "full_backend_tests_passed": 418,
+    "full_backend_tests_skipped": 1,
+    "full_backend_test_seconds": 37.16,
+    "new_regression_tests": 41,
+    "ruff": "passed",
+    "original_baseline_passed": 60,
+    "original_live_report_unchanged": true,
+    "new_model_requests": 0
+  },
+  "remaining": "19 strict wrong facts across 16 cases are only known city aliases and operating-system case. Primary labels/scorer unchanged; not a new model-quality or blind generalization measurement.",
+  "cases": [
+    {
+      "case_id": "newholdout-01",
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 15,
+        "category": "laptop",
+        "budget": {
+          "amount": "6800",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 15,
+        "category": "laptop",
+        "budget": {
+          "amount": "6800",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-02",
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 5,
+        "omission_count": 1,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 1536,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 7,
+        "category": "laptop",
+        "budget": {
+          "amount": "12500",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 48,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 7,
+        "category": "laptop",
+        "budget": {
+          "amount": "12500",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 48,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1536,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-03",
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 5,
+        "omission_count": 1,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 512,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 6,
+        "category": "laptop",
+        "budget": {
+          "amount": "1499.5",
+          "currency": "EUR"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 6,
+        "category": "laptop",
+        "budget": {
+          "amount": "1499.5",
+          "currency": "EUR"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 512,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-04",
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 3,
+        "omission_count": 2,
+        "wrong_count": 2,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_ram_gb",
+            "value": 24,
+            "operator": "GTE",
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "value": 768,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [
+          {
+            "expected": {
+              "field": "category",
+              "value": "laptop",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "category",
+              "value": "monitor",
+              "operator": "EQ",
+              "strength": null
+            }
+          },
+          {
+            "expected": {
+              "field": "quantity",
+              "value": 9,
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "quantity",
+              "value": 30,
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 30,
+        "category": "monitor",
+        "budget": {
+          "amount": "7300.00",
+          "currency": "CNY"
+        },
+        "constraints": [],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 9,
+        "category": "laptop",
+        "budget": {
+          "amount": "7300",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-05",
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 4,
+        "omission_count": 2,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_ram_gb",
+            "value": 24,
+            "operator": "GTE",
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "value": 768,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [
+          {
+            "expected": {
+              "field": "quantity",
+              "value": 11,
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "quantity",
+              "value": 40,
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 40,
+        "category": "laptop",
+        "budget": {
+          "amount": "7600.00",
+          "currency": "CNY"
+        },
+        "constraints": [],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 11,
+        "category": "laptop",
+        "budget": {
+          "amount": "7600",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-06",
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 4,
+        "category": "laptop",
+        "budget": {
+          "amount": "9100",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 48,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1536,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 4,
+        "category": "laptop",
+        "budget": {
+          "amount": "9100",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 48,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1536,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-07",
+      "before": {
+        "passed": false,
+        "expected_count": 9,
+        "correct_count": 8,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 9,
+        "correct_count": 8,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 10,
+        "category": "laptop",
+        "budget": {
+          "amount": "8600",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 10,
+        "category": "laptop",
+        "budget": {
+          "amount": "8600",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-08",
+      "before": {
+        "passed": false,
+        "expected_count": 9,
+        "correct_count": 6,
+        "omission_count": 1,
+        "wrong_count": 2,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_warranty_months",
+            "value": 30,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          },
+          {
+            "expected": {
+              "field": "operating_system",
+              "value": "linux",
+              "operator": "EQ",
+              "strength": "HARD"
+            },
+            "actual": {
+              "field": "operating_system",
+              "value": "Linux",
+              "operator": "EQ",
+              "strength": "HARD"
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 9,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 2,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          },
+          {
+            "expected": {
+              "field": "operating_system",
+              "value": "linux",
+              "operator": "EQ",
+              "strength": "HARD"
+            },
+            "actual": {
+              "field": "operating_system",
+              "value": "Linux",
+              "operator": "EQ",
+              "strength": "HARD"
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 5,
+        "category": "laptop",
+        "budget": {
+          "amount": "9600",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          },
+          {
+            "field": "operating_system",
+            "operator": "EQ",
+            "value": "Linux",
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 5,
+        "category": "laptop",
+        "budget": {
+          "amount": "9600",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          },
+          {
+            "field": "operating_system",
+            "operator": "EQ",
+            "value": "Linux",
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_warranty_months",
+            "operator": "GTE",
+            "value": 30,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-09",
+      "before": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 13,
+        "category": "laptop",
+        "budget": {
+          "amount": "6900",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "condition",
+            "operator": "EQ",
+            "value": "NEW",
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 13,
+        "category": "laptop",
+        "budget": {
+          "amount": "6900",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "condition",
+            "operator": "EQ",
+            "value": "NEW",
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-10",
+      "before": {
+        "passed": true,
+        "expected_count": 5,
+        "correct_count": 5,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 5,
+        "correct_count": 5,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 8,
+        "category": "laptop",
+        "budget": {
+          "amount": "6400",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 8,
+        "category": "laptop",
+        "budget": {
+          "amount": "6400",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      }
+    },
+    {
+      "case_id": "newholdout-11",
+      "before": {
+        "passed": false,
+        "expected_count": 5,
+        "correct_count": 4,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 5,
+        "correct_count": 4,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": null,
+        "category": "laptop",
+        "budget": null,
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": null,
+        "category": "laptop",
+        "budget": null,
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      }
+    },
+    {
+      "case_id": "newholdout-12",
+      "before": {
+        "passed": false,
+        "expected_count": 4,
+        "correct_count": 3,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 4,
+        "correct_count": 3,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 14,
+        "category": null,
+        "budget": {
+          "amount": "5600",
+          "currency": "CNY"
+        },
+        "constraints": [],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 14,
+        "category": null,
+        "budget": {
+          "amount": "5600",
+          "currency": "CNY"
+        },
+        "constraints": [],
+        "status": "NEEDS_CLARIFICATION"
+      }
+    },
+    {
+      "case_id": "newholdout-13",
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 16,
+        "category": "laptop",
+        "budget": {
+          "amount": "7100",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 16,
+        "category": "laptop",
+        "budget": {
+          "amount": "7100",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-14",
+      "before": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 3,
+        "category": "laptop",
+        "budget": {
+          "amount": "15000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 64,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_ram_gb",
+            "operator": "LTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1536,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 3,
+        "category": "laptop",
+        "budget": {
+          "amount": "15000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 64,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_ram_gb",
+            "operator": "LTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1536,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      }
+    },
+    {
+      "case_id": "newholdout-15",
+      "before": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 6,
+        "omission_count": 1,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_storage_gb",
+            "value": 2048,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [
+          "conflicts_mismatch",
+          "missing_fields_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 8,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 18,
+        "category": "laptop",
+        "budget": {
+          "amount": "8200",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "LTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 18,
+        "category": "laptop",
+        "budget": {
+          "amount": "8200",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 2048,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "LTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      }
+    },
+    {
+      "case_id": "newholdout-16",
+      "before": {
+        "passed": false,
+        "expected_count": 6,
+        "correct_count": 4,
+        "omission_count": 2,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [
+          {
+            "field": "minimum_ram_gb",
+            "value": 24,
+            "operator": "GTE",
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "value": 768,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "wrong": [],
+        "additions": [],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "missing_fields_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 6,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 17,
+        "category": "laptop",
+        "budget": null,
+        "constraints": [],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 17,
+        "category": "laptop",
+        "budget": null,
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      }
+    },
+    {
+      "case_id": "newholdout-17",
+      "before": {
+        "passed": false,
+        "expected_count": 6,
+        "correct_count": 5,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 6,
+        "correct_count": 5,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shenzhen",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "深圳",
+              "operator": "EQ",
+              "strength": null
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 11,
+        "category": "laptop",
+        "budget": null,
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 11,
+        "category": "laptop",
+        "budget": null,
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 24,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 768,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      }
+    },
+    {
+      "case_id": "newholdout-18",
+      "before": {
+        "passed": false,
+        "expected_count": 9,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 3,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          },
+          {
+            "expected": {
+              "field": "operating_system",
+              "value": "windows",
+              "operator": "EQ",
+              "strength": "HARD"
+            },
+            "actual": {
+              "field": "operating_system",
+              "value": "Windows",
+              "operator": "EQ",
+              "strength": "HARD"
+            }
+          },
+          {
+            "expected": {
+              "field": "operating_system",
+              "value": "linux",
+              "operator": "EQ",
+              "strength": "HARD"
+            },
+            "actual": {
+              "field": "operating_system",
+              "value": "Linux",
+              "operator": "EQ",
+              "strength": "HARD"
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": false,
+        "expected_count": 9,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 3,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "delivery_city",
+              "value": "Shanghai",
+              "operator": "EQ",
+              "strength": null
+            },
+            "actual": {
+              "field": "delivery_city",
+              "value": "上海",
+              "operator": "EQ",
+              "strength": null
+            }
+          },
+          {
+            "expected": {
+              "field": "operating_system",
+              "value": "windows",
+              "operator": "EQ",
+              "strength": "HARD"
+            },
+            "actual": {
+              "field": "operating_system",
+              "value": "Windows",
+              "operator": "EQ",
+              "strength": "HARD"
+            }
+          },
+          {
+            "expected": {
+              "field": "operating_system",
+              "value": "linux",
+              "operator": "EQ",
+              "strength": "HARD"
+            },
+            "actual": {
+              "field": "operating_system",
+              "value": "Linux",
+              "operator": "EQ",
+              "strength": "HARD"
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 2,
+        "category": "laptop",
+        "budget": {
+          "amount": "13000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 48,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1536,
+            "strength": "HARD"
+          },
+          {
+            "field": "operating_system",
+            "operator": "EQ",
+            "value": "Windows",
+            "strength": "HARD"
+          },
+          {
+            "field": "operating_system",
+            "operator": "EQ",
+            "value": "Linux",
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      },
+      "after_values": {
+        "quantity": 2,
+        "category": "laptop",
+        "budget": {
+          "amount": "13000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 48,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1536,
+            "strength": "HARD"
+          },
+          {
+            "field": "operating_system",
+            "operator": "EQ",
+            "value": "Windows",
+            "strength": "HARD"
+          },
+          {
+            "field": "operating_system",
+            "operator": "EQ",
+            "value": "Linux",
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      }
+    },
+    {
+      "case_id": "newholdout-19",
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 1,
+        "omitted": [],
+        "wrong": [],
+        "additions": [
+          {
+            "field": "minimum_ram_gb",
+            "value": 16,
+            "operator": "GTE",
+            "strength": "HARD"
+          }
+        ],
+        "issues": [
+          "delta_fields_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 14,
+        "category": "laptop",
+        "budget": {
+          "amount": "8000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 48,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 16,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 14,
+        "category": "laptop",
+        "budget": {
+          "amount": "8000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 48,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-20",
+      "before": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 20,
+        "category": "laptop",
+        "budget": {
+          "amount": "7200",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 16,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 20,
+        "category": "laptop",
+        "budget": {
+          "amount": "7200",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 16,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-21",
+      "before": {
+        "passed": true,
+        "expected_count": 8,
+        "correct_count": 8,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 8,
+        "correct_count": 8,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 20,
+        "category": "laptop",
+        "budget": {
+          "amount": "8000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 16,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 20,
+        "category": "laptop",
+        "budget": {
+          "amount": "8000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 16,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-22",
+      "before": {
+        "passed": false,
+        "expected_count": 6,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 1,
+        "omitted": [],
+        "wrong": [],
+        "additions": [
+          {
+            "field": "budget.maximum",
+            "value": {
+              "amount": "8000",
+              "currency": "CNY"
+            },
+            "operator": "EQ",
+            "strength": null
+          }
+        ],
+        "issues": [
+          "clarification_coverage_mismatch",
+          "delta_fields_mismatch",
+          "missing_fields_mismatch",
+          "status_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 6,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 20,
+        "category": "laptop",
+        "budget": {
+          "amount": "8000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 16,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 20,
+        "category": "laptop",
+        "budget": null,
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 16,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "NEEDS_CLARIFICATION"
+      }
+    },
+    {
+      "case_id": "newholdout-23",
+      "before": {
+        "passed": false,
+        "expected_count": 7,
+        "correct_count": 6,
+        "omission_count": 0,
+        "wrong_count": 1,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [
+          {
+            "expected": {
+              "field": "minimum_storage_gb",
+              "value": 2048,
+              "operator": "GTE",
+              "strength": "HARD"
+            },
+            "actual": {
+              "field": "minimum_storage_gb",
+              "value": 1024,
+              "operator": "GTE",
+              "strength": "HARD"
+            }
+          }
+        ],
+        "additions": [],
+        "issues": [
+          "delta_fields_mismatch"
+        ],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 20,
+        "category": "laptop",
+        "budget": {
+          "amount": "8000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 16,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 20,
+        "category": "laptop",
+        "budget": {
+          "amount": "8000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_ram_gb",
+            "operator": "GTE",
+            "value": 16,
+            "strength": "HARD"
+          },
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 2048,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    },
+    {
+      "case_id": "newholdout-24",
+      "before": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "after": {
+        "passed": true,
+        "expected_count": 7,
+        "correct_count": 7,
+        "omission_count": 0,
+        "wrong_count": 0,
+        "addition_count": 0,
+        "omitted": [],
+        "wrong": [],
+        "additions": [],
+        "issues": [],
+        "evidence_errors": []
+      },
+      "original_proposal_unchanged": true,
+      "before_values": {
+        "quantity": 20,
+        "category": "laptop",
+        "budget": {
+          "amount": "8000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      },
+      "after_values": {
+        "quantity": 20,
+        "category": "laptop",
+        "budget": {
+          "amount": "8000",
+          "currency": "CNY"
+        },
+        "constraints": [
+          {
+            "field": "minimum_storage_gb",
+            "operator": "GTE",
+            "value": 1024,
+            "strength": "HARD"
+          }
+        ],
+        "status": "READY_FOR_SOURCING"
+      }
+    }
+  ]
+}

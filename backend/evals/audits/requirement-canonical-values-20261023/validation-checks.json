@@ -1,0 +1,14 @@
+{
+  "full_backend_tests_passed": 452,
+  "full_backend_tests_skipped": 1,
+  "full_backend_test_seconds": 34.23,
+  "new_regression_tests": 34,
+  "targeted_tests_passed": 132,
+  "legacy_baseline_passed": 60,
+  "ruff": "passed",
+  "scorer_changed": false,
+  "gold_labels_changed": false,
+  "prompt_changed": false,
+  "new_model_requests": 0,
+  "new_model_tokens": 0
+}

@@ -29,6 +29,9 @@ ProcurePilot 是一个面向企业员工、采购专员和审批人的 AI 采购
 - [单 Agent、双 Agent 与确定性基线消融评测技术设计](docs/17-agent-topology-ablation-evaluation.md)
 - [需求 Agent 评测基线与运行说明](docs/21-requirement-evaluation-baseline.md)
 - [需求评测16条失败分析与修复对比](docs/22-requirement-baseline-failure-analysis.md)
+- [新留出集真实模型评测与校验前后对比](docs/23-requirement-live-holdout-evaluation.md)
+- [需求校验副作用修复与同输出回归](docs/24-requirement-validation-fixes.md)
+- [后端规范值统一与严格评分回归](docs/25-requirement-canonical-values.md)
 
 ## 快速开始
 

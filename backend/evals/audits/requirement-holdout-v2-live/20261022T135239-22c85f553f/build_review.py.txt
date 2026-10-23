@@ -1,0 +1,131 @@
+"""Derive paired diagnostics without changing the frozen labels, scorer or report.
+
+Usage: python build_review.py.txt REPORT_JSON DATASET_JSON FREEZE_JSON
+Outputs are written next to REPORT_JSON. No model calls or production imports.
+"""
+from pathlib import Path
+import csv
+import hashlib
+import html
+import json
+import sys
+from collections import Counter
+
+
+def sha(path):
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def format_equivalent(wrong):
+    expected, actual = wrong['expected'], wrong['actual']
+    if any(expected[key] != actual[key] for key in ('field', 'operator', 'strength')):
+        return False
+    field = expected['field']
+    cities = {'上海': 'shanghai', 'shanghai': 'shanghai', '深圳': 'shenzhen', 'shenzhen': 'shenzhen'}
+    a, b = expected['value'], actual['value']
+    if not isinstance(a, str) or not isinstance(b, str):
+        return False
+    if field == 'delivery_city':
+        return cities.get(a.casefold()) is not None and cities.get(a.casefold()) == cities.get(b.casefold())
+    if field == 'operating_system':
+        return a.casefold() in {'linux', 'windows', 'macos'} and a.casefold() == b.casefold()
+    return False
+
+
+def make_review(report_path, dataset_path, freeze_path):
+    report = json.loads(report_path.read_text())
+    dataset = json.loads(dataset_path.read_text())
+    freeze = json.loads(freeze_path.read_text())
+    assert sha(dataset_path) == freeze['dataset_sha256'] == report['manifest']['dataset_sha256']
+    assert len(report['results']) == len(dataset['cases']) == 24
+    assert report['repetitions'] == 1 and report['mode'] == 'live'
+    labels = {case['case_id']: case for case in dataset['cases']}
+    phases = {}
+    for phase in ('proposal', 'final'):
+        scores = [row[phase] for row in report['results']]
+        wrong = [item for score in scores for item in score['wrong']]
+        equivalent = [item for item in wrong if format_equivalent(item)]
+        phases[phase] = dict(
+            strict_passed=sum(s['passed'] for s in scores),
+            expected_facts=sum(s['expected_count'] for s in scores),
+            omissions=sum(s['omission_count'] for s in scores),
+            strict_wrong=sum(s['wrong_count'] for s in scores),
+            equivalent_format_mismatches=len(equivalent),
+            wrong_excluding_format_mismatches=len(wrong)-len(equivalent),
+            unsupported_additions=sum(s['addition_count'] for s in scores),
+            evidence_invalid_cases=sum('evidence_invalid' in s['issues'] for s in scores),
+            issue_counts=dict(Counter(i for s in scores for i in s['issues'])),
+        )
+        assert phases[phase]['strict_wrong'] == len(wrong)
+
+    rows=[]
+    format_diagnostics=[]
+    for result in report['results']:
+        row=dict(case_id=result['case_id'],category=result['category'],message=labels[result['case_id']]['message'])
+        for phase in ('proposal','final'):
+            score=result[phase]
+            row.update({f'{phase}_{key}':score[key] for key in ('passed','omission_count','wrong_count','addition_count')})
+            row[f'{phase}_equivalent_format_count']=sum(format_equivalent(w) for w in score['wrong'])
+            row[f'{phase}_issues']=';'.join(score['issues'])
+            format_diagnostics.extend(dict(case_id=result['case_id'],phase=phase,**w) for w in score['wrong'] if format_equivalent(w))
+        row['fallback_used']=result['fallback_used']
+        row['validation_error']=result['validation_error']
+        row['error_type']=result['error_type']
+        row.update({key:result['usage'][key] if result['usage'] else None for key in ('input_tokens','output_tokens','model_requests')})
+        row['total_tokens']=row['input_tokens']+row['output_tokens'] if result['usage'] else None
+        row.update({key:result[key] for key in ('usage_complete','duration_ms','model_duration_ms','validation_duration_ms')})
+        rows.append(row)
+
+    fallback_rows=[r['case_id'] for r in report['results'] if r['fallback_used']]
+    worsened=[r['case_id'] for r in report['results'] if any(r['final'][key]>r['proposal'][key] for key in ('omission_count','wrong_count','addition_count'))]
+    summary=dict(
+        review_version='requirement-holdout-v2-paired-review-v1',
+        experiment_id=report['experiment_id'],
+        raw_report_sha256=sha(report_path),
+        dataset_sha256=sha(dataset_path),
+        freeze_sha256=sha(freeze_path),
+        configured_provider=report['manifest']['settings']['provider'],
+        configured_model=report['manifest']['settings']['model'],
+        served_model_identity_independently_verified=False,
+        primary_scoring='Unchanged frozen v1 scoring, including canonical spelling and evidence/state/delta checks.',
+        posthoc_diagnostic='Separately classify Shanghai/上海 and Shenzhen/深圳 aliases and operating-system case only. Does not rewrite primary scores, count as a new benchmark, or waive evidence/state/delta failures.',
+        phase_counts=phases,
+        usage=report['usage'],latency=report['latency'],latency_by_phase=report['latency_by_phase'],
+        validation_impact=report['validation_impact'],fallback_case_ids=fallback_rows,
+        any_fact_metric_worsened_case_ids=worsened,
+        execution_error_count=sum(r['error_type'] is not None for r in report['results']),
+        input_tokens_total=report['usage']['input_tokens_total_known'],
+        output_tokens_total=report['usage']['output_tokens_total_known'],
+        total_tokens=sum(r['total_tokens'] or 0 for r in rows),
+        serial_case_duration_total_ms=sum(r['duration_ms'] for r in rows),
+        format_diagnostics=format_diagnostics,
+        limitations=[
+            'Synthetic engineering labels, not business reviewed or representative production samples.',
+            'One sample per case; no confidence interval, repetitions or provider-version guarantee.',
+            'Token values are provider-reported via SDK, not an independently reconciled bill.',
+            'Model time includes SDK, network and parsing; not time-to-first-token.',
+            'Validation time includes supplementation/fallback; it makes no model requests.',
+            'No sourcing, tool-quality or full workflow evaluation; fixed base for update cases.',
+            'The new holdout is now seen and must not be reused as blind evidence after tuning.',
+        ],
+    )
+    parent=report_path.parent
+    (parent/'paired-review.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
+    with (parent/'case-comparison.csv').open('w',encoding='utf-8-sig',newline='') as stream:
+        writer=csv.DictWriter(stream,fieldnames=list(rows[0]), lineterminator='\n')
+        writer.writeheader()
+        writer.writerows(rows)
+    head=['case_id','proposal_omission_count','final_omission_count','proposal_wrong_count','final_wrong_count','proposal_passed','final_passed','fallback_used','input_tokens','output_tokens','model_duration_ms','validation_duration_ms']
+    def escape(value):
+        return html.escape(str(value))
+    table=''.join('<tr>'+''.join('<td>'+escape(row[key])+'</td>' for key in head)+'</tr>' for row in rows)
+    page="""<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>新留出集：校验前后对比</title><style>body{font:15px system-ui;margin:28px;color:#202a38}table{border-collapse:collapse}td,th{padding:8px;border:1px solid #ccd3dc;white-space:nowrap}pre{white-space:pre-wrap}a{color:#2563eb}</style><h1>24条新留出用例：真实模型评测</h1><p>同一次模型输出分别在后端校验前后评分；final包含补齐与规则兜底。严格错误提取包含归一化拼写差异，诊断结果另列，不替换主分数。单轮合成用例，不是生产准确率。</p><p><a href="report.json">完整原始报告</a> · <a href="case-comparison.csv">逐例CSV</a> · <a href="paired-review.json">指标与诊断JSON</a></p>"""
+    page+='<pre>'+escape(json.dumps({k:v for k,v in summary.items() if k!='format_diagnostics'},ensure_ascii=False,indent=2))+'</pre>'
+    page+='<table><tr>'+''.join('<th>'+escape(key)+'</th>' for key in head)+'</tr>'+table+'</table></html>'
+    (parent/'paired-review.html').write_text(page)
+    print(json.dumps({k:v for k,v in summary.items() if k not in {'format_diagnostics','limitations'}},ensure_ascii=False,indent=2))
+    return summary
+
+
+if __name__=='__main__':
+    make_review(*(Path(p) for p in sys.argv[1:4]))
